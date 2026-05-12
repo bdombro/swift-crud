@@ -1,0 +1,11 @@
+---
+description: >-
+  Swift coding standards
+globs:
+  - "*.swift"
+alwaysApply: false
+---
+
+- Must have top, human-readable comment with goal, why, high-level how
+- **Functions, Classes, Structs** must have a human-readable doc comment before and a blank line after.
+- prefer object-oriented programming over functional

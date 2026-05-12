@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      # On macOS, `setup-swift` installs the OSS toolchain, which does not match the Xcode SDK
+      # (see "this SDK is not supported by the compiler"). Use the runner's Xcode Swift instead.
+      - name: Install Swift
+        if: runner.os == 'Linux'
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "5.10"
+      - name: Build
+        run: swift build -v
+      - name: Test
+        run: swift test -v
