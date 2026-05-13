@@ -33,10 +33,10 @@ func login(req: HTTPRequest) async throws -> HTTPResponse {
     let body = try await req.decode(as: LoginRequest.self)
 
     guard let user = try await User.read(from: db, sqlWhere: "email = ?", body.email).first,
-          let hash = user.codeHash,
-          let created = user.codeCreatedAt,
-          (user.codeAttempts ?? 0) <= 2,
-          created >= Date().addingTimeInterval(-600)
+        let hash = user.codeHash,
+        let created = user.codeCreatedAt,
+        (user.codeAttempts ?? 0) <= 2,
+        created >= Date().addingTimeInterval(-600)
     else {
         return HTTPResponse.json(.unauthorized, ["message": "invalid email or password"])
     }
@@ -59,7 +59,8 @@ func login(req: HTTPRequest) async throws -> HTTPResponse {
 
     var res = HTTPResponse.json(.ok, ["message": "success"])
     let farFuture = "Wed, 01 Jan 2099 00:00:00 GMT"
-    let cookieValue = "\(AuthCookie.setCookie(userId: user.id, secret: activeAuthSecret)); Path=/; Expires=\(farFuture)"
+    let cookieValue =
+        "\(AuthCookie.setCookie(userId: user.id, secret: activeAuthSecret)); Path=/; Expires=\(farFuture)"
     res.headers.addValue("user_id=\(cookieValue)", for: HTTPHeader("Set-Cookie"))
     return res
 }
@@ -67,7 +68,8 @@ func login(req: HTTPRequest) async throws -> HTTPResponse {
 /// Clear the session cookie.
 func logout(req: HTTPRequest) async throws -> HTTPResponse {
     var res = HTTPResponse.json(.ok, ["message": "success"])
-    res.headers.addValue("user_id=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT", for: HTTPHeader("Set-Cookie"))
+    res.headers.addValue(
+        "user_id=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT", for: HTTPHeader("Set-Cookie"))
     return res
 }
 
@@ -87,7 +89,9 @@ func sendCode(req: HTTPRequest) async throws -> HTTPResponse {
     if let user = try await User.read(from: db, sqlWhere: "email = ?", body.email).first {
         let twoMinsAgo = Date().addingTimeInterval(-120)
         if let created = user.codeCreatedAt, created > twoMinsAgo {
-            return HTTPResponse.json(.tooManyRequests, ["message": "Wait 2 minutes after requesting a code to try again."])
+            return HTTPResponse.json(
+                .tooManyRequests,
+                ["message": "Wait 2 minutes after requesting a code to try again."])
         }
 
         var u = user
