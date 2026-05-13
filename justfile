@@ -69,25 +69,30 @@ benchmark-init:
 # performance benchmark the app with a simple cookie-authenticated GET request.
 
 # 70-85k req/s in production mode on M4 Pro macbook
-benchmark-cookie:
+benchmark-healthz:
     hey -n 10000 -c 50 -m GET \
-      -H "Cookie: user_id=$USER_ID_COOKIE" \
+      http://127.0.0.1:8000/healthz
+
+# 70-85k req/s in production mode on M4 Pro macbook
+benchmark-cookie USER_ID_COOKIE="1.e3ZM4zjWAZGDR/Y2wLiJU+BuFNS3LNWgNT6tu9Nk46A=":
+    hey -n 10000 -c 50 -m GET \
+      -H "Cookie: user_id={{ USER_ID_COOKIE }}" \
       http://127.0.0.1:8000/api/session
 
 # performance benchmark the app with a single DB read
 
 # 48-57k req/s in production mode on M4 Pro macbook
-benchmark-r:
+benchmark-r USER_ID_COOKIE="1.e3ZM4zjWAZGDR/Y2wLiJU+BuFNS3LNWgNT6tu9Nk46A=":
     hey -n 100000 -c 50 -m GET \
-      -H "Cookie: user_id=$USER_ID_COOKIE" \
+      -H "Cookie: user_id={{ USER_ID_COOKIE }}" \
       http://127.0.0.1:8000/api/posts?limit=1
 
 # performance benchmark the app with a single DB write
 
 # 9-11.5k req/s in production mode on M4 Pro macbook
-benchmark-w:
+benchmark-w USER_ID_COOKIE="1.e3ZM4zjWAZGDR/Y2wLiJU+BuFNS3LNWgNT6tu9Nk46A=":
     hey -n 50000 -c 50 -m POST \
-      -H "Cookie: user_id=$USER_ID_COOKIE" \
+      -H "Cookie: user_id={{ USER_ID_COOKIE }}" \
       -H "Content-Type: application/json" \
       -d '{"content":"Benchmarking POST","variant":"note"}' \
       http://127.0.0.1:8000/api/posts
@@ -96,17 +101,17 @@ benchmark-w:
 # ~3.16s, 31600r/s total, Write 3200r/s, Read 29200r/s in
 
 # production mode on M4 Pro macbook
-benchmark-rw:
+benchmark-rw USER_ID_COOKIE="1.e3ZM4zjWAZGDR/Y2wLiJU+BuFNS3LNWgNT6tu9Nk46A=":
     #!/bin/bash
     # Save the start time
     start_time=$(date +%s.%N)
 
     # Run GET and POST benchmarks simultaneously
     hey -n 90000 -c 50 -m GET \
-      -H "Cookie: user_id=$USER_ID_COOKIE" \
+      -H "Cookie: user_id={{ USER_ID_COOKIE }}" \
       http://127.0.0.1:8000/api/posts?limit=1 &
     hey -n 10000 -c 50 -m POST \
-      -H "Cookie: user_id=$USER_ID_COOKIE" \
+      -H "Cookie: user_id={{ USER_ID_COOKIE }}" \
       -H "Content-Type: application/json" \
       -d '{"content":"Benchmarking POST","variant":"note"}' \
       http://127.0.0.1:8000/api/posts &

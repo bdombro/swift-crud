@@ -74,8 +74,6 @@ func main() async throws {
     print("Server running on port \(env.port)")
     if logFileWriteQueue != nil, let path = logFilePath {
         print("Request logs: \(path)")
-    } else {
-        print("Request logs: visible in aaPanel / stdout")
     }
 
     // Wait for SIGTERM / SIGINT — then initiate graceful shutdown

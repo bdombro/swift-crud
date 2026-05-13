@@ -22,29 +22,23 @@ final class Server: @unchecked Sendable {
         try? group.syncShutdownGracefully()
     }
 
-    /// Blocking start — used by the app entrypoint.  Runs until the server is stopped.
+    /// Blocking start — used by the app entrypoint. Binds to 0.0.0.0 and runs until stopped.
     func start() async throws {
-        let bootstrap = NIOTSListenerBootstrap(group: group)
-            .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
-            .childChannelInitializer { channel in
-                channel.pipeline.configureHTTPServerPipeline(withErrorHandling: true).flatMap {
-                    channel.pipeline.addHandler(NIOHTTPServerHandler())
-                }
-            }
-
-        let channel = try await bootstrap.bind(host: "0.0.0.0", port: Int(self.port)).get()
-        self.channel = channel
-        print("Server running on port \(port)")
-        if logFileWriteQueue != nil, let path = logFilePath {
-            print("Request logs: \(path)")
-        } else {
-            print("Request logs: visible in aaPanel / stdout")
-        }
+        _ = try await bind(host: "0.0.0.0")
+        guard let channel = self.channel else { return }
         try await channel.closeFuture.get()
     }
 
-    /// Non-blocking start — returns once the server is listening.  Suitable for tests.
+    /// Non-blocking start — binds to 127.0.0.1 and returns immediately. For tests.
     func startAndListen() async throws {
+        let channel = try await bind(host: "127.0.0.1")
+        if let address = channel.localAddress {
+            boundPort = UInt16(address.port ?? Int(self.port))
+        }
+    }
+
+    /// Internal bind helper — shared by both start modes.
+    private func bind(host: String) async throws -> Channel {
         let bootstrap = NIOTSListenerBootstrap(group: group)
             .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { channel in
@@ -53,12 +47,9 @@ final class Server: @unchecked Sendable {
                 }
             }
 
-        let channel = try await bootstrap.bind(host: "127.0.0.1", port: Int(self.port)).get()
+        let channel = try await bootstrap.bind(host: host, port: Int(self.port)).get()
         self.channel = channel
-
-        if let address = channel.localAddress {
-            boundPort = UInt16(address.port ?? Int(self.port))
-        }
+        return channel
     }
 
     /// Stops the server.
@@ -122,7 +113,7 @@ private final class NIOHTTPServerHandler: ChannelInboundHandler, @unchecked Send
         var request = HTTPRequest(
             method: head.method, path: path, query: query, headers: headers, body: body)
         let start = Date()
-        let userId = request.authUserId.map(String.init) ?? "-"
+        let userId = request.authUserId.map(String.init) ?? "ANONYMOUS"
 
         guard let (handler, params) = routes.route(for: head.method, path: path) else {
             let durationMs = Int(Date().timeIntervalSince(start) * 1000)
