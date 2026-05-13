@@ -12,21 +12,24 @@ A lightweight CRUD API server built with Swift, [FlyingFox](https://github.com/s
 The results of the benchmarks in the justfile were observed on a MacBook M4 Pro in production mode:
 
 - **`benchmark-cookie`**: Authenticated GET request to `/api/session` achieves **53k req/s**.
-- **`benchmark-r`**: Authenticated single database read (GET `/api/posts?limit=1`) achieves **29k req/s**.
-- **`benchmark-w`**: Authenticated single database write (POST `/api/posts`) achieves **20k req/s**.
+- **`benchmark-r`**: Authenticated single database read (GET `/api/posts?limit=1`) achieves **45k req/s**.
+- **`benchmark-w`**: Authenticated single database write (POST `/api/posts`) achieves **14-26k req/s**.
 - **`benchmark-rw`**: Mixed workload (90% reads, 10% writes) achieves **CHOKED req/s total**:
-  - Reads: **23k req/s**
-  - Writes: **CHOKES req/s**
+  - Reads: **38k req/s**
+  - Writes: **10k req/s**
 
 Comparing the raw req/s (as in no db read/write) speed between languages:
 
-Rust - 85k - 120k
+Rust - 85k
 Swift - 53k
 Go - 45k - 70k
 Java - 40k - 80k
 Node.js - 15k - 30k
 Python - 1k - 4k
 
+> NOTE: DB read/write speed dwarfs language speed; BUT language DB libs are also often majorly under-optimized
+
+> NOTE: DB read/write speed dwarfs language speed; BUT language DB libs are also often majorly under-optimized
 
 ## Quickstart
 

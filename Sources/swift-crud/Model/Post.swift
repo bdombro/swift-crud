@@ -13,4 +13,8 @@ struct Post: BlackbirdModel, Codable {
     @BlackbirdColumn var updatedAt: Date
     @BlackbirdColumn var userId: Int
     @BlackbirdColumn var variant: String
+
+    nonisolated(unsafe) static var indexes: [[BlackbirdColumnKeyPath]] = [
+        [\.$userId, \.$updatedAt]
+    ]
 }

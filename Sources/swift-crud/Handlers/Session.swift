@@ -21,12 +21,11 @@ struct LoginRequest: Codable {
 
 /// Return the currently authenticated user's profile.
 func getSession(req: HTTPRequest) async throws -> HTTPResponse {
-    guard let userId = req.authUserId,
-          let user = try await User.read(from: db, id: userId)
+    guard let userId = req.authUserId
     else {
         return HTTPResponse.json(.unauthorized, ["message": "unauthorized"])
     }
-    return HTTPResponse.json(.ok, user)
+    return HTTPResponse.json(.ok, userId)
 }
 
 /// Exchange a login code for an HMAC-signed `user_id` cookie.

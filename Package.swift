@@ -10,7 +10,7 @@ let package = Package(
     ],
 
     dependencies: [
-        .package(url: "https://github.com/marcoarment/Blackbird.git", from: "0.5.0"),
+        .package(url: "https://github.com/bdombro/Blackbird-fast", from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.55.0"),
         .package(url: "https://github.com/apple/swift-nio-transport-services.git", from: "1.18.0"),
     ],
@@ -18,7 +18,7 @@ let package = Package(
         .executableTarget(
             name: "swift-crud",
             dependencies: [
-                .product(name: "Blackbird", package: "Blackbird"),
+                .product(name: "Blackbird", package: "Blackbird-fast"),
                 .product(name: "NIO", package: "swift-nio"),
                 .product(name: "NIOHTTP1", package: "swift-nio"),
                 .product(name: "NIOTransportServices", package: "swift-nio-transport-services"),
@@ -27,7 +27,7 @@ let package = Package(
         .testTarget(
             name: "swift-crudTests",
             dependencies: [
-                .target(name: "swift-crud"),
+                .target(name: "swift-crud")
             ]
         ),
     ]

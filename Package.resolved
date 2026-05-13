@@ -1,13 +1,13 @@
 {
-  "originHash" : "45ccd559c5913f3f6b3893ef9d0945d842abb2f4b5d03a38c22a82a6a4b498fe",
+  "originHash" : "4ab3f8357faff58740d858b1fe87e24403b7c2cc0fb9dbe8a0809e455257b5ca",
   "pins" : [
     {
-      "identity" : "blackbird",
+      "identity" : "blackbird-fast",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/marcoarment/Blackbird.git",
+      "location" : "https://github.com/bdombro/Blackbird-fast",
       "state" : {
-        "revision" : "e2bf935089cd7620031ea342eaf96bf4ba3a22dc",
-        "version" : "0.5.0"
+        "revision" : "a00cbe54ee77cbdf7fc0f59df8e68cb7a8cfdfbb",
+        "version" : "1.0.0"
       }
     },
     {

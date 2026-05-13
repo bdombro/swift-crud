@@ -2,10 +2,11 @@
 // Uses .serialized because tests mutate module-level globals (db, emailSender, activeAuthSecret).
 // Each test gets a fresh in-memory DB and a new server on port 0.
 
-import CryptoKit
-import Testing
 import Blackbird
+import CryptoKit
 import Foundation
+import Testing
+
 @testable import swift_crud
 
 private enum TestError: Error {
@@ -110,7 +111,8 @@ final class APIIntegrationTests {
     func sendCodeRateLimited() async throws {
         try await seedUser(email: "rate@test.com")
         // Ensure codeCreatedAt is within the 2-minute window
-        try await testDb.query("UPDATE users SET codeCreatedAt = ? WHERE email = ?", Date(), "rate@test.com")
+        try await testDb.query(
+            "UPDATE users SET codeCreatedAt = ? WHERE email = ?", Date(), "rate@test.com")
 
         let body = try http.jsonBody(["email": "rate@test.com"])
         let (status, _, _) = try await http.request("POST", "/api/session/send-code", body: body)
@@ -169,7 +171,8 @@ final class APIIntegrationTests {
         try await seedUser(email: "logout@test.com")
         let cookie = try await login(email: "logout@test.com")
 
-        let (status, _, headers) = try await http.request("POST", "/api/session/logout", cookie: cookie)
+        let (status, _, headers) = try await http.request(
+            "POST", "/api/session/logout", cookie: cookie)
         #expect(status == 200)
 
         let clearedCookie = http.extractCookie(from: headers, name: "user_id")
@@ -185,7 +188,8 @@ final class APIIntegrationTests {
 
         // Create
         let createBody = try http.jsonBody(["id": "e2e-1", "content": "Hello", "variant": "note"])
-        let (createStatus, _, _) = try await http.request("POST", "/api/posts", body: createBody, cookie: cookie)
+        let (createStatus, _, _) = try await http.request(
+            "POST", "/api/posts", body: createBody, cookie: cookie)
         #expect(createStatus == 201)
 
         // List
@@ -196,7 +200,8 @@ final class APIIntegrationTests {
         #expect(list.items[0].id == "e2e-1")
 
         // Get
-        let (getStatus, getData, _) = try await http.request("GET", "/api/posts/e2e-1", cookie: cookie)
+        let (getStatus, getData, _) = try await http.request(
+            "GET", "/api/posts/e2e-1", cookie: cookie)
         #expect(getStatus == 200)
         let post = try http.decode(getData, as: Post.self)
         #expect(post.content == "Hello")
@@ -204,15 +209,18 @@ final class APIIntegrationTests {
         // Update (updatedAt must be newer than current)
         let newTime = ISO8601DateFormatter().string(from: Date().addingTimeInterval(60))
         let updateBody = try http.jsonBody(["content": "Updated", "updatedAt": newTime])
-        let (updateStatus, _, _) = try await http.request("PUT", "/api/posts/e2e-1", body: updateBody, cookie: cookie)
+        let (updateStatus, _, _) = try await http.request(
+            "PUT", "/api/posts/e2e-1", body: updateBody, cookie: cookie)
         #expect(updateStatus == 200)
 
         // Delete
-        let (deleteStatus, _, _) = try await http.request("DELETE", "/api/posts/e2e-1", cookie: cookie)
+        let (deleteStatus, _, _) = try await http.request(
+            "DELETE", "/api/posts/e2e-1", cookie: cookie)
         #expect(deleteStatus == 200)
 
         // Get after delete → 404
-        let (notFoundStatus, _, _) = try await http.request("GET", "/api/posts/e2e-1", cookie: cookie)
+        let (notFoundStatus, _, _) = try await http.request(
+            "GET", "/api/posts/e2e-1", cookie: cookie)
         #expect(notFoundStatus == 404)
     }
 
@@ -223,14 +231,17 @@ final class APIIntegrationTests {
 
         let now = Date()
         let nowStr = ISO8601DateFormatter().string(from: now)
-        let createBody = try http.jsonBody(["id": "stale-1", "content": "Original", "variant": "note",
-                                            "updatedAt": nowStr])
+        let createBody = try http.jsonBody([
+            "id": "stale-1", "content": "Original", "variant": "note",
+            "updatedAt": nowStr,
+        ])
         _ = try await http.request("POST", "/api/posts", body: createBody, cookie: cookie)
 
         // Stale updatedAt (before the current one)
         let staleStr = ISO8601DateFormatter().string(from: now.addingTimeInterval(-60))
         let staleBody = try http.jsonBody(["content": "Stale", "updatedAt": staleStr])
-        let (status, _, _) = try await http.request("PUT", "/api/posts/stale-1", body: staleBody, cookie: cookie)
+        let (status, _, _) = try await http.request(
+            "PUT", "/api/posts/stale-1", body: staleBody, cookie: cookie)
         #expect(status == 404)
     }
 
@@ -241,12 +252,22 @@ final class APIIntegrationTests {
 
         let now = ISO8601DateFormatter().string(from: Date())
         let payload: [[String: String]] = [
-            ["id": "b1", "content": "First", "variant": "note", "createdAt": now, "updatedAt": now],
-            ["id": "b2", "content": "Second", "variant": "note", "createdAt": now, "updatedAt": now],
-            ["id": "b3", "content": "Third", "variant": "note", "createdAt": now, "updatedAt": now],
+            [
+                "id": "b1", "content": "First", "variant": "note", "createdAt": now,
+                "updatedAt": now,
+            ],
+            [
+                "id": "b2", "content": "Second", "variant": "note", "createdAt": now,
+                "updatedAt": now,
+            ],
+            [
+                "id": "b3", "content": "Third", "variant": "note", "createdAt": now,
+                "updatedAt": now,
+            ],
         ]
         let body = try JSONSerialization.data(withJSONObject: payload)
-        let (status, _, _) = try await http.request("POST", "/api/posts/upsert-many", body: body, cookie: cookie)
+        let (status, _, _) = try await http.request(
+            "POST", "/api/posts/upsert-many", body: body, cookie: cookie)
         #expect(status == 200)
 
         let (_, listData, _) = try await http.request("GET", "/api/posts?limit=10", cookie: cookie)
@@ -264,8 +285,10 @@ final class APIIntegrationTests {
 
         let now = ISO8601DateFormatter().string(from: Date())
         func mkBody(_ id: String) throws -> Data {
-            try JSONSerialization.data(withJSONObject: ["id": id, "content": "c", "variant": "note",
-                                                       "createdAt": now, "updatedAt": now])
+            try JSONSerialization.data(withJSONObject: [
+                "id": id, "content": "c", "variant": "note",
+                "createdAt": now, "updatedAt": now,
+            ])
         }
 
         _ = try await http.request("POST", "/api/posts", body: mkBody("u1-post"), cookie: cookie1)
@@ -310,5 +333,70 @@ final class APIIntegrationTests {
         )
         let page2 = try http.decode(data2, as: ListResponse.self)
         #expect(!page2.items.isEmpty)
+    }
+
+    @Test("limit parameter: default, custom, edge cases, invalid value")
+    func limitParameter() async throws {
+        try await seedUser(email: "limit@test.com")
+        let cookie = try await login(email: "limit@test.com")
+
+        // Insert 15 posts with distinct timestamps
+        let base = Date()
+        for i in 0..<15 {
+            let t = ISO8601DateFormatter().string(from: base.addingTimeInterval(Double(i)))
+            let body = try JSONSerialization.data(withJSONObject: [
+                "id": "lp-\(i)", "content": "c\(i)", "variant": "note",
+                "createdAt": t, "updatedAt": t,
+            ])
+            _ = try await http.request("POST", "/api/posts", body: body, cookie: cookie)
+        }
+
+        // Default limit (no param) → 10 items
+        do {
+            let (_, data, _) = try await http.request("GET", "/api/posts", cookie: cookie)
+            let page = try http.decode(data, as: ListResponse.self)
+            #expect(page.items.count == 10, "default should be 10")
+            #expect(page.hasMore == true)
+        }
+
+        // Explicit custom limit → respects value
+        do {
+            let (_, data, _) = try await http.request("GET", "/api/posts?limit=5", cookie: cookie)
+            let page = try http.decode(data, as: ListResponse.self)
+            #expect(page.items.count == 5, "limit=5 should return 5")
+            #expect(page.hasMore == true)
+        }
+
+        // Limit larger than available items returns all
+        do {
+            let (_, data, _) = try await http.request("GET", "/api/posts?limit=100", cookie: cookie)
+            let page = try http.decode(data, as: ListResponse.self)
+            #expect(page.items.count == 15, "limit=100 should return all 15")
+            #expect(page.hasMore == false)
+        }
+
+        // limit=1 returns 1 item
+        do {
+            let (_, data, _) = try await http.request("GET", "/api/posts?limit=1", cookie: cookie)
+            let page = try http.decode(data, as: ListResponse.self)
+            #expect(page.items.count == 1, "limit=1 should return 1")
+            #expect(page.hasMore == true)
+        }
+
+        // Invalid limit (non-numeric) falls back to default 10
+        do {
+            let (_, data, _) = try await http.request("GET", "/api/posts?limit=abc", cookie: cookie)
+            let page = try http.decode(data, as: ListResponse.self)
+            #expect(page.items.count == 10, "invalid limit should default to 10")
+        }
+
+        // limit at the cap returns expected number
+        do {
+            let (_, data, _) = try await http.request(
+                "GET", "/api/posts?limit=1000", cookie: cookie)
+            let page = try http.decode(data, as: ListResponse.self)
+            #expect(page.items.count == 15, "limit=1000 should return all 15 (cap at 1000 works)")
+            #expect(page.hasMore == false)
+        }
     }
 }
