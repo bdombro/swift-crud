@@ -25,6 +25,16 @@ nonisolated(unsafe) var logFileWriteQueue: DispatchQueue? = nil
 /// File path used by logFileWriteQueue. Nil when LOG_FILE is not set.
 nonisolated(unsafe) var logFilePath: String? = nil
 
+// Constant-time comparison of two Data values to prevent timing side-channel attacks.
+private func constantTimeEqual(_ lhs: Data, _ rhs: Data) -> Bool {
+    guard lhs.count == rhs.count else { return false }
+    var result: UInt8 = 0
+    for i in 0..<lhs.count {
+        result |= lhs[i] ^ rhs[i]
+    }
+    return result == 0
+}
+
 // MARK: - Auth cookie (HMAC-signed)
 
 /// Namespace for HMAC-signed `user_id` cookie helpers.
@@ -53,9 +63,7 @@ enum AuthCookie {
         guard let sigData = Data(base64Encoded: String(parts[1])),
             sigData.count == SHA256.byteCount
         else { return nil }
-        // Constant-time comparison of the raw bytes
-        let expectedData = Data(expected)
-        guard expectedData == sigData else { return nil }
+        guard constantTimeEqual(Data(expected), sigData) else { return nil }
 
         return userId
     }
@@ -150,7 +158,12 @@ struct HTTPResponse {
 
     static func json<T: Encodable>(_ status: HTTPResponseStatus, _ payload: T) -> HTTPResponse {
         let data = try! encoder.encode(payload)
-        let headers: HTTPHeaders = [HTTPHeader("Content-Type"): "application/json"]
+        let headers: HTTPHeaders = [
+            HTTPHeader("Content-Type"): "application/json",
+            HTTPHeader("X-Content-Type-Options"): "nosniff",
+            HTTPHeader("X-Frame-Options"): "DENY",
+            HTTPHeader("Content-Security-Policy"): "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'",
+        ]
         return HTTPResponse(statusCode: status, headers: headers, body: data)
     }
 }

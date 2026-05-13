@@ -17,6 +17,34 @@ struct LoginRequest: Codable {
     var code: String
 }
 
+// MARK: - Rate limiter for send-code
+
+private actor SendCodeRateLimiter {
+    private var timestamps: [String: [Date]] = [:]
+
+    func checkAndRecord(key: String, maxRequests: Int, windowSeconds: TimeInterval) -> Bool {
+        let now = Date()
+        var recent = timestamps[key, default: []].filter { now.timeIntervalSince($0) < windowSeconds }
+        if recent.count >= maxRequests { return true }
+        recent.append(now)
+        timestamps[key] = recent
+        return false
+    }
+}
+
+private let sendCodeRateLimiter = SendCodeRateLimiter()
+
+// MARK: - Constant-time helpers
+
+private func constantTimeEqual(_ lhs: Data, _ rhs: Data) -> Bool {
+    guard lhs.count == rhs.count else { return false }
+    var result: UInt8 = 0
+    for i in 0..<lhs.count {
+        result |= lhs[i] ^ rhs[i]
+    }
+    return result == 0
+}
+
 // MARK: - Handlers (alphabetical)
 
 /// Return the currently authenticated user's profile.
@@ -32,22 +60,29 @@ func getSession(req: HTTPRequest) async throws -> HTTPResponse {
 func login(req: HTTPRequest) async throws -> HTTPResponse {
     let body = try await req.decode(as: LoginRequest.self)
 
-    guard let user = try await User.read(from: db, sqlWhere: "email = ?", body.email).first,
-        let hash = user.codeHash,
-        let created = user.codeCreatedAt,
-        (user.codeAttempts ?? 0) <= 2,
-        created >= Date().addingTimeInterval(-600)
-    else {
-        return HTTPResponse.json(.unauthorized, ["message": "invalid email or password"])
-    }
+    let user = try await User.read(from: db, sqlWhere: "email = ?", body.email).first
 
     let codeData = body.code.data(using: .utf8)!
     let reqHash = SHA256.hash(data: codeData).compactMap { String(format: "%02x", $0) }.joined()
 
-    guard reqHash == hash else {
+    let hashMatch: Bool
+    if let user, let hash = user.codeHash, let created = user.codeCreatedAt,
+       (user.codeAttempts ?? 0) <= 2,
+       created >= Date().addingTimeInterval(-600) {
+        hashMatch = reqHash == hash
+    } else {
+        hashMatch = false
+    }
+
+    if !hashMatch, let user, let userHash = user.codeHash, reqHash != userHash {
         var u = user
         u.codeAttempts = (u.codeAttempts ?? 0) + 1
         try await u.write(to: db)
+    } else if !hashMatch {
+        _ = try await db.query("SELECT 1 WHERE 1 = 0")
+    }
+
+    guard hashMatch, let user else {
         return HTTPResponse.json(.unauthorized, ["message": "invalid email or password"])
     }
 
@@ -82,8 +117,13 @@ func sendCode(req: HTTPRequest) async throws -> HTTPResponse {
         return HTTPResponse.json(.unauthorized, ["message": "invalid email"])
     }
 
-    var rng = SystemRandomNumberGenerator()
-    let code = String(format: "%08d", Int.random(in: 0..<100_000_000, using: &rng))
+    let rateLimited = await sendCodeRateLimiter.checkAndRecord(
+        key: body.email, maxRequests: 5, windowSeconds: 60)
+    guard !rateLimited else {
+        return HTTPResponse.json(.tooManyRequests, ["message": "Too many code requests. Try again later."])
+    }
+
+    let code = Data((0..<20).map { _ in UInt8.random(in: .min ... .max) }).base64EncodedString()
     let codeData = code.data(using: .utf8)!
     let hash = SHA256.hash(data: codeData).compactMap { String(format: "%02x", $0) }.joined()
 

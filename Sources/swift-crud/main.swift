@@ -38,9 +38,8 @@ func main() async throws {
     let env = Environment()
 
     guard env.authSecret != "change-me" else {
-        fatalError(
-            "AUTH_SECRET environment variable must be set. Run `just keygen-cookie-secret` to generate one."
-        )
+        print("error: AUTH_SECRET environment variable must be set. Run `just keygen-cookie-secret` to generate one.")
+        Darwin.exit(1)
     }
 
     var dbOptions: Blackbird.Database.Options = []
