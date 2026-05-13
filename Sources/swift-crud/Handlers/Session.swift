@@ -60,7 +60,7 @@ func login(req: HTTPRequest) async throws -> HTTPResponse {
     var res = HTTPResponse.json(.ok, ["message": "success"])
     let farFuture = "Wed, 01 Jan 2099 00:00:00 GMT"
     let cookieValue =
-        "\(AuthCookie.setCookie(userId: user.id, secret: activeAuthSecret)); Path=/; Expires=\(farFuture)"
+        "\(AuthCookie.setCookie(userId: user.id, secret: activeAuthSecret)); Path=/; Expires=\(farFuture); HttpOnly; Secure; SameSite=Strict"
     res.headers.addValue("user_id=\(cookieValue)", for: HTTPHeader("Set-Cookie"))
     return res
 }
@@ -69,7 +69,7 @@ func login(req: HTTPRequest) async throws -> HTTPResponse {
 func logout(req: HTTPRequest) async throws -> HTTPResponse {
     var res = HTTPResponse.json(.ok, ["message": "success"])
     res.headers.addValue(
-        "user_id=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT", for: HTTPHeader("Set-Cookie"))
+        "user_id=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Strict", for: HTTPHeader("Set-Cookie"))
     return res
 }
 
@@ -82,7 +82,8 @@ func sendCode(req: HTTPRequest) async throws -> HTTPResponse {
         return HTTPResponse.json(.unauthorized, ["message": "invalid email"])
     }
 
-    let code = String(format: "%08d", Int.random(in: 0..<100_000_000))
+    var rng = SystemRandomNumberGenerator()
+    let code = String(format: "%08d", Int.random(in: 0..<100_000_000, using: &rng))
     let codeData = code.data(using: .utf8)!
     let hash = SHA256.hash(data: codeData).compactMap { String(format: "%02x", $0) }.joined()
 
