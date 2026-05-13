@@ -1,7 +1,7 @@
 ![Logo](logo.png)
 <!-- Big money NE - https://patorjk.com/software/taag/#p=testall&f=Bulbhead&t=swift-crud&x=none&v=4&h=4&w=80&we=false> -->
 
-A lightweight CRUD API server built with Swift, [SwiftNIO](https://github.com/apple/swift-nio) (HTTP), and [Blackbird](https://github.com/marcoarment/Blackbird) (SQLite).
+A lightweight, exceptionally fast CRUD API server built with Swift, [SwiftNIO](https://github.com/apple/swift-nio) (HTTP), and [Blackbird](https://github.com/marcoarment/Blackbird) (SQLite).
 
 > **Philosophy:** Intentionally frugal with dependencies. No heavy frameworks like Vapor or Hummingbird — we only pull in a lightweight HTTP server and a zero-config ORM, each chosen for high value with minimal overhead.
 
@@ -11,23 +11,22 @@ A lightweight CRUD API server built with Swift, [SwiftNIO](https://github.com/ap
 
 The results of the benchmarks in the justfile were observed on a MacBook M4 Pro in production mode:
 
-- **`benchmark-cookie`**: Authenticated GET request to `/api/session` achieves **53k req/s**.
-- **`benchmark-r`**: Authenticated single database read (GET `/api/posts?limit=1`) achieves **45k req/s**.
+- **`benchmark-healthz`**: Authenticated GET request to `/healthz` achieves **63+k req/s**.
+- **`benchmark-cookie`**: Authenticated GET request to `/api/session` achieves **56+k req/s**.
+- **`benchmark-r`**: Authenticated single database read (GET `/api/posts?limit=1`) achieves **56k req/s**.
 - **`benchmark-w`**: Authenticated single database write (POST `/api/posts`) achieves **14-26k req/s**.
-- **`benchmark-rw`**: Mixed workload (90% reads, 10% writes) achieves **CHOKED req/s total**:
-  - Reads: **38k req/s**
+- **`benchmark-rw`**: Mixed workload (90% reads, 10% writes) achieves **45k req/s total**:
+  - Reads: **36k req/s**
   - Writes: **10k req/s**
 
 Comparing the raw req/s (as in no db read/write) speed between languages:
 
 Rust - 85k
-Swift - 53k
+Swift - 63k
 Go - 45k - 70k
 Java - 40k - 80k
 Node.js - 15k - 30k
 Python - 1k - 4k
-
-> NOTE: DB read/write speed dwarfs language speed; BUT language DB libs are also often majorly under-optimized
 
 > NOTE: DB read/write speed dwarfs language speed; BUT language DB libs are also often majorly under-optimized
 

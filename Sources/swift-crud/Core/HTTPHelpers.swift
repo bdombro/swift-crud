@@ -7,6 +7,7 @@ import NIOHTTP1
 
 typealias HTTPHeader = String
 typealias HTTPHeaders = [HTTPHeader: String]
+typealias RequestHeaders = NIOHTTP1.HTTPHeaders
 typealias Handler = @Sendable (HTTPRequest) async throws -> HTTPResponse
 
 /// Module-level auth secret for HMAC-signing the `user_id` cookie.
@@ -67,7 +68,7 @@ enum AuthCookie {
 
 // MARK: - HTTP primitives
 
-struct HTTPRequest {
+struct HTTPRequest: Sendable {
     struct QueryItem: Equatable {
         let name: String
         let value: String
@@ -76,9 +77,16 @@ struct HTTPRequest {
     let method: HTTPMethod
     let path: String
     let query: String
-    let headers: HTTPHeaders
+    let headers: RequestHeaders
     let body: Data
     var routeParameters: [String: String] = [:]
+
+    /// Shared reference type so all struct copies see the same cached auth state.
+    private final class AuthCache: @unchecked Sendable {
+        /// nil = not yet computed, .none = computed-no-auth, .some(id) = authenticated
+        var result: Int?? = nil
+    }
+    private let _authCache = AuthCache()
 
     var queryParameters: [String: String] {
         guard !query.isEmpty else { return [:] }
@@ -96,7 +104,7 @@ struct HTTPRequest {
     }
 
     func cookie(_ name: String) -> String? {
-        guard let cookieHeader = headers[HTTPHeader("Cookie")] else { return nil }
+        guard let cookieHeader = headers.first(name: "Cookie") else { return nil }
         for part in cookieHeader.split(separator: ";") {
             let trimmed = part.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("\(name)=") {
@@ -107,10 +115,20 @@ struct HTTPRequest {
     }
 
     /// The authenticated user ID, extracted from the HMAC-signed `user_id` cookie.
+    /// Lazily computed and cached — only runs HMAC on first access.
     var authUserId: Int? {
-        guard let val = cookie("user_id") else { return nil }
-        return AuthCookie.verify(val, secret: activeAuthSecret)
+        if let cached = _authCache.result { return cached }
+        guard let val = cookie("user_id") else {
+            _authCache.result = .some(nil)
+            return nil
+        }
+        let id = AuthCookie.verify(val, secret: activeAuthSecret)
+        _authCache.result = .some(id)
+        return id
     }
+
+    /// True once any copy of this request has resolved authUserId.
+    var wasAuthChecked: Bool { _authCache.result != nil }
 
     func decode<T: Decodable>(as type: T.Type) async throws -> T {
         let decoder = JSONDecoder()

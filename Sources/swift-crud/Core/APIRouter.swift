@@ -26,8 +26,7 @@ private struct Route: Sendable {
         self.handler = handler
     }
 
-    func match(_ path: String) -> [String: String]? {
-        let parts = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+    func match(_ parts: [Substring]) -> [String: String]? {
         guard parts.count == segments.count else { return nil }
 
         var parameters: [String: String] = [:]
@@ -36,7 +35,7 @@ private struct Route: Sendable {
             case .constant(let value):
                 guard value == part else { return nil }
             case .parameter(let name):
-                parameters[name] = part
+                parameters[name] = String(part)
             }
         }
         return parameters
@@ -63,9 +62,10 @@ struct Routes: Sendable {
     }
 
     func route(for method: HTTPMethod, path: String) -> (Handler, [String: String])? {
+        let parts = path.split(separator: "/", omittingEmptySubsequences: true)
         for route in routes {
             guard route.method == method else { continue }
-            if let params = route.match(path) {
+            if let params = route.match(parts) {
                 return (route.handler, params)
             }
         }

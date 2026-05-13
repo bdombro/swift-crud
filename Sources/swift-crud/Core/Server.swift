@@ -1,9 +1,12 @@
-// Server.swift: wraps a SwiftNIO HTTP server (NIOTS/NIOTransportServices) with start/stop lifecycle and a NIOHTTPServerHandler that dispatches requests to the route table.
+// Server.swift: wraps a SwiftNIO HTTP server (NIOTS/NIOTransportServices) with start/stop lifecycle and async connection handler based on NIOAsyncChannel.
 
+import Darwin
 import Foundation
 import NIO
 import NIOHTTP1
 import NIOTransportServices
+
+private typealias HTTPConnection = NIOAsyncChannel<HTTPServerRequestPart, HTTPServerResponsePart>
 
 final class Server: @unchecked Sendable {
     let port: UInt16
@@ -24,32 +27,64 @@ final class Server: @unchecked Sendable {
 
     /// Blocking start — used by the app entrypoint. Binds to 0.0.0.0 and runs until stopped.
     func start() async throws {
-        _ = try await bind(host: "0.0.0.0")
-        guard let channel = self.channel else { return }
-        try await channel.closeFuture.get()
+        let serverChannel = try await bind(host: "0.0.0.0")
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            try await serverChannel.executeThenClose { inbound in
+                for try await connection in inbound {
+                    group.addTask {
+                        await self.handleConnection(connection)
+                    }
+                }
+            }
+        }
     }
 
     /// Non-blocking start — binds to 127.0.0.1 and returns immediately. For tests.
     func startAndListen() async throws {
-        let channel = try await bind(host: "127.0.0.1")
-        if let address = channel.localAddress {
-            boundPort = UInt16(address.port ?? Int(self.port))
+        let serverChannel = try await bind(host: "127.0.0.1")
+        Task {
+            try? await withThrowingTaskGroup(of: Void.self) { group in
+                try await serverChannel.executeThenClose { inbound in
+                    for try await connection in inbound {
+                        group.addTask {
+                            await self.handleConnection(connection)
+                        }
+                    }
+                }
+            }
         }
     }
 
+    private func handleConnection(_ connection: HTTPConnection) async {
+        do {
+            try await handleHTTPConnection(connection)
+        } catch { }
+    }
+
     /// Internal bind helper — shared by both start modes.
-    private func bind(host: String) async throws -> Channel {
-        let bootstrap = NIOTSListenerBootstrap(group: group)
+    private func bind(host: String) async throws -> NIOAsyncChannel<HTTPConnection, Never> {
+        let serverChannel = try await NIOTSListenerBootstrap(group: group)
             .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
-            .childChannelInitializer { channel in
-                channel.pipeline.configureHTTPServerPipeline(withErrorHandling: true).flatMap {
-                    channel.pipeline.addHandler(NIOHTTPServerHandler())
+            .bind(host: host, port: Int(port)) { channel in
+                channel.pipeline.configureHTTPServerPipeline(withErrorHandling: true).flatMapThrowing { _ in
+                    try NIOAsyncChannel<HTTPServerRequestPart, HTTPServerResponsePart>(
+                        wrappingChannelSynchronously: channel,
+                        configuration: .init(
+                            backPressureStrategy: NIOAsyncSequenceProducerBackPressureStrategies.HighLowWatermark(
+                                lowWatermark: 8, highWatermark: 16
+                            ),
+                            isOutboundHalfClosureEnabled: true,
+                            inboundType: HTTPServerRequestPart.self,
+                            outboundType: HTTPServerResponsePart.self
+                        )
+                    )
                 }
             }
-
-        let channel = try await bootstrap.bind(host: host, port: Int(self.port)).get()
-        self.channel = channel
-        return channel
+        self.channel = serverChannel.channel
+        if let address = serverChannel.channel.localAddress {
+            boundPort = UInt16(address.port ?? Int(self.port))
+        }
+        return serverChannel
     }
 
     /// Stops the server.
@@ -60,147 +95,131 @@ final class Server: @unchecked Sendable {
         }
         try? await group.shutdownGracefully()
     }
-}
 
-private final class NIOHTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
-    typealias InboundIn = HTTPServerRequestPart
-    typealias OutboundOut = HTTPServerResponsePart
+    // MARK: - Connection handler
 
-    private var head: HTTPRequestHead?
-    private var bodyBuffer: ByteBuffer?
-
-    private static func formatLogDate(_ date: Date) -> String {
-        let comp = Calendar.current.dateComponents(
-            [.year, .month, .day, .hour, .minute, .second], from: date)
-        return String(
-            format: "%04d.%02d.%02d_%02d:%02d:%02d",
-            comp.year ?? 0, comp.month ?? 0, comp.day ?? 0,
-            comp.hour ?? 0, comp.minute ?? 0, comp.second ?? 0)
-    }
-
-    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        let part = self.unwrapInboundIn(data)
-        switch part {
-        case .head(let head):
-            self.head = head
-            self.bodyBuffer = context.channel.allocator.buffer(capacity: 0)
-
-        case .body(var byteBuffer):
-            if self.bodyBuffer == nil {
-                self.bodyBuffer = context.channel.allocator.buffer(
-                    capacity: byteBuffer.readableBytes)
+    private func handleHTTPConnection(_ connection: HTTPConnection) async throws {
+        try await connection.executeThenClose { inbound, outbound in
+            var iterator = inbound.makeAsyncIterator()
+            while let part = try await iterator.next() {
+                switch part {
+                case .head(let head):
+                    var body = connection.channel.allocator.buffer(capacity: 0)
+                    while let bodyPart = try await iterator.next() {
+                        switch bodyPart {
+                        case .head: break
+                        case .body(var buf):
+                            body.writeBuffer(&buf)
+                        case .end: break
+                        }
+                        if case .end = bodyPart { break }
+                    }
+                    await handleRequest(
+                        head: head,
+                        body: body.getData(at: 0, length: body.readableBytes) ?? Data(),
+                        outbound: outbound
+                    )
+                case .body, .end:
+                    break
+                }
             }
-            self.bodyBuffer?.writeBuffer(&byteBuffer)
-
-        case .end:
-            guard let head = self.head else { return }
-            let body =
-                self.bodyBuffer?.getData(at: 0, length: self.bodyBuffer?.readableBytes ?? 0)
-                ?? Data()
-            self.head = nil
-            self.bodyBuffer = nil
-            handleRequest(head: head, body: body, context: context)
         }
     }
 
-    private func handleRequest(head: HTTPRequestHead, body: Data, context: ChannelHandlerContext) {
+    // MARK: - Request handling
+
+    private func handleRequest(
+        head: HTTPRequestHead,
+        body: Data,
+        outbound: NIOAsyncChannelOutboundWriter<HTTPServerResponsePart>
+    ) async {
         let uri = head.uri
-        let components = URLComponents(string: uri)
-        let path = components?.path ?? uri
-        let query = components?.query ?? ""
-        let headers: HTTPHeaders = HTTPHeaders(
-            uniqueKeysWithValues: head.headers.map { ($0.name, $0.value) })
+        let qIdx = uri.firstIndex(of: "?") ?? uri.endIndex
+        let path = String(uri[..<qIdx])
+        let query = qIdx < uri.endIndex ? String(uri[uri.index(after: qIdx)...]) : ""
+        let headers: RequestHeaders = head.headers
         var request = HTTPRequest(
             method: head.method, path: path, query: query, headers: headers, body: body)
         let start = Date()
-        let userId = request.authUserId.map(String.init) ?? "ANONYMOUS"
 
         guard let (handler, params) = routes.route(for: head.method, path: path) else {
-            let durationMs = Int(Date().timeIntervalSince(start) * 1000)
-            let line =
-                "\(Self.formatLogDate(start)) 404 \(head.method.rawValue) \(path) \(userId) \(durationMs)ms"
-            if let queue = logFileWriteQueue, let filePath = logFilePath {
-                queue.async {
-                    try? "\(line)\n".write(toFile: filePath, atomically: true, encoding: .utf8)
-                }
-            } else {
-                print(line)
-            }
-            writeResponse(
-                HTTPResponse(
-                    statusCode: .notFound, headers: [HTTPHeader("Content-Type"): "text/plain"],
-                    body: Data("Not Found".utf8)), head: head, context: context)
+            logRequest(start: start, method: head.method.rawValue, path: path, userId: "ANONYMOUS", statusCode: 404)
+            var notFoundHeaders = NIOHTTP1.HTTPHeaders()
+            notFoundHeaders.add(name: "Content-Type", value: "text/plain")
+            try? await outbound.write(contentsOf: [
+                .head(.init(version: head.version, status: .notFound, headers: notFoundHeaders)),
+                .body(.byteBuffer(ByteBuffer(string: "Not Found"))),
+                .end(nil),
+            ])
             return
         }
 
         request.routeParameters = params
 
-        let eventLoop = context.eventLoop
-        let internalErrorResponse = HTTPResponse(
-            statusCode: .internalServerError,
-            headers: [HTTPHeader("Content-Type"): "application/json"],
-            body: try! HTTPResponse.encoder.encode(["message": "internal server error"]))
-        let promise = eventLoop.makePromise(of: HTTPResponse.self)
-
-        promise.futureResult.whenComplete { result in
-            let durationMs = Int(Date().timeIntervalSince(start) * 1000)
-            let response: HTTPResponse
-            switch result {
-            case .success(let value):
-                response = value
-                let statusCode = response.statusCode.code
-                let line =
-                    "\(Self.formatLogDate(start)) \(statusCode) \(head.method.rawValue) \(path) \(userId) \(durationMs)ms"
-                if let queue = logFileWriteQueue, let filePath = logFilePath {
-                    queue.async {
-                        try? "\(line)\n".write(toFile: filePath, atomically: true, encoding: .utf8)
-                    }
-                } else {
-                    print(line)
-                }
-            case .failure:
-                response = internalErrorResponse
-                let line =
-                    "\(Self.formatLogDate(start)) 500 \(head.method.rawValue) \(path) \(userId) \(durationMs)ms"
-                if let queue = logFileWriteQueue, let filePath = logFilePath {
-                    queue.async {
-                        try? "\(line)\n".write(toFile: filePath, atomically: true, encoding: .utf8)
-                    }
-                } else {
-                    print(line)
-                }
-            }
-            eventLoop.execute {
-                self.writeResponse(response, head: head, context: context)
-            }
+        let response: HTTPResponse
+        do {
+            response = try await handler(request)
+        } catch {
+            response = Self.internalErrorResponse
         }
 
-        Task {
-            do {
-                let response = try await handler(request)
-                promise.succeed(response)
-            } catch {
-                promise.succeed(internalErrorResponse)
-            }
-        }
+        let userIdStr = request.wasAuthChecked
+            ? request.authUserId.map(String.init) ?? "ANONYMOUS"
+            : "ANONYMOUS"
+        logRequest(start: start, method: head.method.rawValue, path: path,
+                    userId: userIdStr, statusCode: Int(response.statusCode.code))
+
+        await writeResponse(response, head: head, outbound: outbound)
     }
 
     private func writeResponse(
-        _ response: HTTPResponse, head: HTTPRequestHead, context: ChannelHandlerContext
-    ) {
+        _ response: HTTPResponse,
+        head: HTTPRequestHead,
+        outbound: NIOAsyncChannelOutboundWriter<HTTPServerResponsePart>
+    ) async {
         var nioHeaders = NIOHTTP1.HTTPHeaders()
         for (name, value) in response.headers {
             nioHeaders.add(name: name, value: value)
         }
         nioHeaders.add(name: "Content-Length", value: "\(response.body.count)")
-
         let responseHead = HTTPResponseHead(
             version: head.version, status: response.statusCode, headers: nioHeaders)
-        context.write(self.wrapOutboundOut(.head(responseHead)), promise: nil)
+        let bodyBuffer = ByteBuffer(bytes: response.body)
+        try? await outbound.write(contentsOf: [
+            .head(responseHead),
+            .body(.byteBuffer(bodyBuffer)),
+            .end(nil),
+        ])
+    }
 
-        var buffer = context.channel.allocator.buffer(capacity: response.body.count)
-        buffer.writeBytes(response.body)
-        context.write(self.wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
-        context.writeAndFlush(self.wrapOutboundOut(.end(nil)), promise: nil)
+    // MARK: - Logging
+
+    private static func formatLogDate(_ date: Date) -> String {
+        var t = time_t(date.timeIntervalSince1970)
+        var tm = tm()
+        gmtime_r(&t, &tm)
+        return String(
+            format: "%04d.%02d.%02d_%02d:%02d:%02d",
+            tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+            tm.tm_hour, tm.tm_min, tm.tm_sec)
+    }
+
+    private static let internalErrorResponse = HTTPResponse(
+        statusCode: .internalServerError,
+        headers: [HTTPHeader("Content-Type"): "application/json"],
+        body: try! HTTPResponse.encoder.encode(["message": "internal server error"]))
+
+    private func logRequest(start: Date, method: String, path: String, userId: String, statusCode: Int) {
+        let durationMs = Int(Date().timeIntervalSince(start) * 1000)
+        let logQueue = logFileWriteQueue ?? DispatchQueue.global(qos: .utility)
+        let filePath = logFilePath
+        logQueue.async {
+            let line = "\(Self.formatLogDate(start)) \(statusCode) \(method) \(path) \(userId) \(durationMs)ms"
+            if let path = filePath {
+                try? "\(line)\n".write(toFile: path, atomically: true, encoding: .utf8)
+            } else {
+                print(line)
+            }
+        }
     }
 }

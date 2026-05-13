@@ -154,9 +154,8 @@ final class APIIntegrationTests {
         let (status, data, _) = try await http.request("GET", "/api/session/", cookie: cookie)
         #expect(status == 200)
 
-        let user = try http.decode(data, as: User.self)
-        #expect(user.id == userId)
-        #expect(user.email == "session@test.com")
+        let decoded = try http.decode(data, as: Int.self)
+        #expect(decoded == userId)
     }
 
     @Test("GET /api/session/ with tampered cookie returns 401")

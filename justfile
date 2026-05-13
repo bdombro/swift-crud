@@ -4,9 +4,6 @@ set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 _:
     @just --list
 
-# Run the application in debug mode
-dev: kill
-    swift run
 
 # Compile everything in release mode (optimized binaries under `.build/release/`).
 build:
@@ -30,6 +27,7 @@ keygen-cookie-secret:
 kill:
     lsof -ti :8000 | xargs kill -9 || true
 
+alias start := run
 # Run the built binary application
 run: build kill
     .build/release/swift-crud
@@ -38,8 +36,7 @@ run: build kill
 run-debug: build-debug kill
     .build/debug/swift-crud
 
-alias start := run-dev
-
+alias dev := run
 # Run the application in dev mode
 run-dev: kill
     swift run

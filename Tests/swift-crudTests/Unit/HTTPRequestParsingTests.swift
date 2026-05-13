@@ -2,6 +2,7 @@
 // Does not touch module globals — safe to run in parallel.
 
 import Foundation
+import NIOHTTP1
 import Testing
 @testable import swift_crud
 
@@ -10,8 +11,8 @@ private func makeRequest(
     query: [HTTPRequest.QueryItem] = [],
     cookieHeader: String? = nil
 ) -> HTTPRequest {
-    var headers: HTTPHeaders = [:]
-    if let cookieHeader { headers[HTTPHeader("Cookie")] = cookieHeader }
+    var headers = NIOHTTP1.HTTPHeaders()
+    if let cookieHeader { headers.add(name: "Cookie", value: cookieHeader) }
     let queryString = query.map { "\($0.name)=\($0.value)" }.joined(separator: "&")
     return HTTPRequest(method: .GET, path: "/test", query: queryString, headers: headers, body: Data())
 }
