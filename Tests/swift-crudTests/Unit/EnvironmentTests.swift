@@ -61,6 +61,27 @@ struct EnvironmentTests {
         #expect(Environment(smtpHost: "smtp.example.com").smtpHost == "smtp.example.com")
     }
 
+    @Test("default smtpTLSMode is starttls")
+    func defaultSmtpTLSMode() {
+        #expect(Environment().smtpTLSMode == .starttls)
+    }
+
+    @Test("custom smtpTLSMode round-trips")
+    func customSmtpTLSMode() {
+        #expect(Environment(smtpTLSMode: .tls).smtpTLSMode == .tls)
+        #expect(Environment(smtpTLSMode: .none).smtpTLSMode == .none)
+    }
+
+    @Test("default smtpTlsInsecure is false")
+    func defaultSmtpTlsInsecure() {
+        #expect(Environment().smtpTlsInsecure == false)
+    }
+
+    @Test("custom smtpTlsInsecure round-trips")
+    func customSmtpTlsInsecure() {
+        #expect(Environment(smtpTlsInsecure: true).smtpTlsInsecure == true)
+    }
+
     @Test("dbDebug true round-trips")
     func dbDebugTrue() {
         #expect(Environment(dbDebug: true).dbDebug == true)

@@ -2,6 +2,16 @@
 
 import Foundation
 
+/// TLS mode for SMTP connections.
+enum SMTPTLSMode: String {
+    /// No encryption — plaintext SMTP (dev only).
+    case none
+    /// STARTTLS on the existing connection (port 587, the standard).
+    case starttls
+    /// Implicit TLS from the moment the TCP socket opens (port 465).
+    case tls
+}
+
 // MARK: - .env file loading
 
 /// Load key=value pairs from a .env file, returning them as a dictionary.
@@ -68,6 +78,12 @@ struct Environment {
     /// The "From" address used in outgoing emails.
     let smtpFrom: String?
 
+    /// TLS mode for SMTP connections.  Default `.starttls`.
+    let smtpTLSMode: SMTPTLSMode
+
+    /// When true, skip TLS certificate validation (dev only).  Default `false`.
+    let smtpTlsInsecure: Bool
+
     // MARK: Init from real environment
 
     init() {
@@ -92,6 +108,8 @@ struct Environment {
         smtpUsername = mergedEnv["SMTP_USERNAME"].flatMap { $0.isEmpty ? nil : $0 }
         smtpPassword = mergedEnv["SMTP_PASSWORD"].flatMap { $0.isEmpty ? nil : $0 }
         smtpFrom = mergedEnv["SMTP_FROM"].flatMap { $0.isEmpty ? nil : $0 }
+        smtpTLSMode = mergedEnv["SMTP_TLS_MODE"].flatMap(SMTPTLSMode.init) ?? .starttls
+        smtpTlsInsecure = mergedEnv["SMTP_TLS_INSECURE"].map { $0 == "true" || $0 == "1" } ?? false
     }
 
     // MARK: Init for testing (allows overriding specific values)
@@ -106,6 +124,8 @@ struct Environment {
         smtpUsername: String? = nil,
         smtpPassword: String? = nil,
         smtpFrom: String? = nil,
+        smtpTLSMode: SMTPTLSMode = .starttls,
+        smtpTlsInsecure: Bool = false,
         logFile: String? = nil
     ) {
         self.port = port
@@ -117,6 +137,8 @@ struct Environment {
         self.smtpUsername = smtpUsername
         self.smtpPassword = smtpPassword
         self.smtpFrom = smtpFrom
+        self.smtpTLSMode = smtpTLSMode
+        self.smtpTlsInsecure = smtpTlsInsecure
         self.logFile = logFile
     }
 }

@@ -1,7 +1,8 @@
-// EmailSender.swift: email abstraction for delivering one-time login codes — provides PrintEmailSender (stdout fallback) and SMTPEmailSender (raw TCP via Network framework), plus a factory function.
+// EmailSender.swift: email abstraction for delivering one-time login codes — provides PrintEmailSender (stdout fallback) and SMTPEmailSender (NIO-based with NIOSSL STARTTLS), plus a factory function.
 
 import Foundation
-import Network
+import NIO
+import NIOSSL
 
 // MARK: - Protocol
 
@@ -11,7 +12,7 @@ protocol EmailSender: Sendable {
     func send(code: String, to email: String) async throws
 }
 
-// MARK: - Print fallback (current behaviour)
+// MARK: - Print fallback
 
 /// Prints the code to stdout — the default when no SMTP is configured.
 struct PrintEmailSender: EmailSender {
@@ -20,9 +21,9 @@ struct PrintEmailSender: EmailSender {
     }
 }
 
-// MARK: - SMTP sender
+// MARK: - SMTP sender (NIO + NIOSSL)
 
-/// Sends the code via SMTP using raw TCP (Network framework).
+/// Sends the code via SMTP using NIO with optional TLS (STARTTLS or implicit).
 /// Requires `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD`, and `SMTP_FROM` env vars.
 struct SMTPEmailSender: EmailSender {
     let host: String
@@ -30,42 +31,114 @@ struct SMTPEmailSender: EmailSender {
     let username: String
     let password: String
     let from: String
+    let tlsMode: SMTPTLSMode
+    let tlsInsecure: Bool
 
     func send(code: String, to email: String) async throws {
         let message = buildMessage(code: code, to: email)
-        try await sendRaw(message, to: email)
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { shutdownGroup(group) }
+
+        let handler = SMTPResponseHandler()
+        var maybeChannel: Channel?
+
+        do {
+            let channel = try await connect(group: group, handler: handler)
+            maybeChannel = channel
+
+            _ = try await send("EHLO swift-crud\r\n", channel: channel, handler: handler)
+
+            if tlsMode == .starttls {
+                try await upgradeToTLS(channel: channel, handler: handler)
+                _ = try await send("EHLO swift-crud\r\n", channel: channel, handler: handler)
+            }
+
+            _ = try await send("AUTH LOGIN\r\n", channel: channel, handler: handler)
+            _ = try await send(Data(username.utf8).base64EncodedString() + "\r\n", channel: channel, handler: handler)
+            _ = try await send(Data(password.utf8).base64EncodedString() + "\r\n", channel: channel, handler: handler)
+            _ = try await send("MAIL FROM:<\(from)>\r\n", channel: channel, handler: handler)
+            _ = try await send("RCPT TO:<\(email)>\r\n", channel: channel, handler: handler)
+            _ = try await send("DATA\r\n", channel: channel, handler: handler)
+            _ = try await send(message + "\r\n.\r\n", channel: channel, handler: handler)
+            _ = try await send("QUIT\r\n", channel: channel, handler: handler)
+
+            try? await channel.close().get()
+        } catch {
+            if let ch = maybeChannel { try? ch.close().wait() }
+            throw error
+        }
     }
 
-    // MARK: - SMTP conversation
+    // MARK: - Connection
 
-    private func sendRaw(_ message: String, to recipient: String) async throws {
-        let connection = try await connect()
-        try await connection.send("EHLO swift-crud\r\n")
-        _ = try await connection.readUpToDelimiter()
-
-        try await connection.send("AUTH LOGIN\r\n")
-        _ = try await connection.readUpToDelimiter()
-
-        try await connection.send("\(Data(username.utf8).base64EncodedString())\r\n")
-        _ = try await connection.readUpToDelimiter()
-
-        try await connection.send("\(Data(password.utf8).base64EncodedString())\r\n")
-        _ = try await connection.readUpToDelimiter()
-
-        try await connection.send("MAIL FROM:<\(from)>\r\n")
-        _ = try await connection.readUpToDelimiter()
-
-        try await connection.send("RCPT TO:<\(recipient)>\r\n")
-        _ = try await connection.readUpToDelimiter()
-
-        try await connection.send("DATA\r\n")
-        _ = try await connection.readUpToDelimiter()
-
-        try await connection.send("\(message)\r\n.\r\n")
-        _ = try await connection.readUpToDelimiter()
-
-        try await connection.send("QUIT\r\n")
+    private func connect(group: EventLoopGroup, handler: SMTPResponseHandler) async throws -> Channel {
+        let bootstrap = ClientBootstrap(group: group)
+            .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
+            .channelOption(ChannelOptions.autoRead, value: true)
+            .channelInitializer { channel in
+                if self.tlsMode == .tls {
+                    do {
+                        let config = self.makeTLSConfig()
+                        let ctx = try NIOSSLContext(configuration: config)
+                        let sslHandler = try NIOSSLClientHandler(context: ctx, serverHostname: self.host)
+                        return channel.pipeline.addHandler(sslHandler).flatMap {
+                            channel.pipeline.addHandler(handler)
+                        }
+                    } catch {
+                        return channel.eventLoop.makeFailedFuture(error)
+                    }
+                } else {
+                    return channel.pipeline.addHandler(handler)
+                }
+            }
+        return try await bootstrap.connect(host: host, port: Int(port)).get()
     }
+
+    // MARK: - STARTTLS upgrade
+
+    private func upgradeToTLS(channel: Channel, handler: SMTPResponseHandler) async throws {
+        _ = try await send("STARTTLS\r\n", channel: channel, handler: handler)
+
+        let config = makeTLSConfig()
+        let ctx = try NIOSSLContext(configuration: config)
+        let sslHandler = try NIOSSLClientHandler(context: ctx, serverHostname: host)
+
+        try await channel.eventLoop.submit {
+            channel.pipeline.addHandler(sslHandler, position: .first).whenComplete { _ in }
+        }.get()
+    }
+
+    // MARK: - TLS config
+
+    private func makeTLSConfig() -> TLSConfiguration {
+        var config = TLSConfiguration.makeClientConfiguration()
+        if tlsInsecure {
+            config.certificateVerification = .none
+        }
+        return config
+    }
+
+    // MARK: - Request / response
+
+    @discardableResult
+    private func send(_ command: String, channel: Channel, handler: SMTPResponseHandler) async throws -> String {
+        let promise = channel.eventLoop.makePromise(of: String.self)
+        channel.eventLoop.execute {
+            if var acc = handler.accumulated, acc.readableBytes > 0 {
+                let result = acc.readString(length: acc.readableBytes) ?? ""
+                acc.clear()
+                handler.accumulated = acc
+                promise.succeed(result)
+            } else {
+                handler.responsePromise = promise
+                let buffer = channel.allocator.buffer(string: command)
+                channel.writeAndFlush(buffer)
+            }
+        }
+        return try await promise.futureResult.get()
+    }
+
+    // MARK: - Message builder
 
     private func buildMessage(code: String, to recipient: String) -> String {
         return """
@@ -78,14 +151,6 @@ struct SMTPEmailSender: EmailSender {
         This code expires in 10 minutes.
         """
     }
-
-    private func connect() async throws -> SMTPConnection {
-        let connection = SMTPConnection()
-        try await connection.connect(host: host, port: port)
-        // Read the server greeting
-        _ = try await connection.readUpToDelimiter()
-        return connection
-    }
 }
 
 // MARK: - Factory
@@ -95,8 +160,10 @@ extension EmailSender where Self == PrintEmailSender {
 }
 
 extension EmailSender where Self == SMTPEmailSender {
-    static func smtp(host: String, port: UInt16, username: String, password: String, from: String) -> SMTPEmailSender {
-        SMTPEmailSender(host: host, port: port, username: username, password: password, from: from)
+    static func smtp(host: String, port: UInt16, username: String, password: String, from: String,
+                     tlsMode: SMTPTLSMode = .starttls, tlsInsecure: Bool = false) -> SMTPEmailSender {
+        SMTPEmailSender(host: host, port: port, username: username, password: password,
+                        from: from, tlsMode: tlsMode, tlsInsecure: tlsInsecure)
     }
 }
 
@@ -109,73 +176,47 @@ func makeEmailSender(from env: Environment) -> EmailSender {
     else {
         return .printFallback
     }
-    return .smtp(host: host, port: env.smtpPort, username: username, password: password, from: from)
+    return .smtp(host: host, port: env.smtpPort, username: username, password: password, from: from,
+                 tlsMode: env.smtpTLSMode, tlsInsecure: env.smtpTlsInsecure)
 }
 
-// MARK: - Low-level TCP connection wrapper
+// MARK: - Helpers
 
-private final class SMTPConnection: @unchecked Sendable {
-    private var connection: NWConnection?
-    private let queue = DispatchQueue(label: "smtp")
-
-    func connect(host: String, port: UInt16) async throws {
-        let conn = NWConnection(
-            host: NWEndpoint.Host(host),
-            port: NWEndpoint.Port(rawValue: port) ?? 587,
-            using: .tcp
-        )
-        connection = conn
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            conn.stateUpdateHandler = { state in
-                switch state {
-                case .ready:
-                    cont.resume()
-                case .failed(let error):
-                    cont.resume(throwing: error)
-                default:
-                    break
-                }
-            }
-            conn.start(queue: queue)
-        }
-    }
-
-    func send(_ string: String) async throws {
-        guard let conn = connection else { throw SMTPError.notConnected }
-        let data = Data(string.utf8)
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            conn.send(content: data, completion: .contentProcessed { error in
-                if let error = error {
-                    cont.resume(throwing: error)
-                } else {
-                    cont.resume()
-                }
-            })
-        }
-    }
-
-    func readUpToDelimiter() async throws -> String {
-        guard let conn = connection else { throw SMTPError.notConnected }
-        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
-            conn.receive(minimumIncompleteLength: 1, maximumLength: 4096) { data, _, isComplete, error in
-                if let error = error {
-                    cont.resume(throwing: error)
-                } else if let data = data, !data.isEmpty {
-                    cont.resume(returning: String(decoding: data, as: UTF8.self))
-                } else if isComplete {
-                    cont.resume(returning: "")
-                } else {
-                    cont.resume(returning: "")
-                }
-            }
-        }
-    }
-
-    deinit {
-        connection?.cancel()
-    }
+/// Bridge to NIO's synchronous shutdown from Swift async.
+private func shutdownGroup(_ group: EventLoopGroup) {
+    group.shutdownGracefully(queue: .global()) { _ in }
 }
 
-private enum SMTPError: Error {
-    case notConnected
+// MARK: - NIO channel handler
+
+/// Accumulates SMTP response bytes and bridges to an EventLoopPromise.
+private final class SMTPResponseHandler: ChannelInboundHandler, @unchecked Sendable {
+    typealias InboundIn = ByteBuffer
+
+    fileprivate var responsePromise: EventLoopPromise<String>?
+    fileprivate var accumulated: ByteBuffer?
+
+    func channelActive(context: ChannelHandlerContext) {
+        accumulated = context.channel.allocator.buffer(capacity: 0)
+        context.fireChannelActive()
+    }
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        var data = unwrapInboundIn(data)
+        accumulated?.writeBuffer(&data)
+        guard let promise = responsePromise else { return }
+        responsePromise = nil
+        guard var acc = accumulated else { return }
+        let result = acc.readString(length: acc.readableBytes) ?? ""
+        acc.clear()
+        accumulated = acc
+        promise.succeed(result)
+    }
+
+    func errorCaught(context: ChannelHandlerContext, error: Error) {
+        if let promise = responsePromise {
+            responsePromise = nil
+            promise.fail(error)
+        }
+    }
 }
