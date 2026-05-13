@@ -7,7 +7,9 @@ func main() async throws {
     let env = Environment()
 
     guard env.authSecret != "change-me" else {
-        fatalError("AUTH_SECRET environment variable must be set. Run `just keygen-cookie-secret` to generate one.")
+        fatalError(
+            "AUTH_SECRET environment variable must be set. Run `just keygen-cookie-secret` to generate one."
+        )
     }
 
     var dbOptions: Blackbird.Database.Options = []
@@ -24,6 +26,11 @@ func main() async throws {
     activeAuthSecret = env.authSecret
     emailSender = sender
     db = database
+
+    if let logFile = env.logFile {
+        logFileWriteQueue = DispatchQueue(label: "swift-crud.access-log", qos: .utility)
+        logFilePath = logFile
+    }
 
     registerPostRoutes()
     registerSessionRoutes()

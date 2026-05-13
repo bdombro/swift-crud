@@ -38,6 +38,12 @@ run: build kill
 run-debug: build-debug kill
     .build/debug/swift-crud
 
+alias start := run-dev
+
+# Run the application in dev mode
+run-dev: kill
+    swift run
+
 # Run unit tests (`SwiftCrudTests`). On macOS, XCTest needs the full Xcode app selected (`xcode-select`), not Command Line Tools only.
 test:
     swift test

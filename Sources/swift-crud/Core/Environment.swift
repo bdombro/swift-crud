@@ -9,7 +9,7 @@ import Foundation
 private func loadDotEnv(path: String = ".env", overrides: [String: String]) -> [String: String] {
     let fm = FileManager.default
     guard fm.fileExists(atPath: path),
-          let content = try? String(contentsOfFile: path, encoding: .utf8)
+        let content = try? String(contentsOfFile: path, encoding: .utf8)
     else { return overrides }
 
     var result = overrides
@@ -20,7 +20,8 @@ private func loadDotEnv(path: String = ".env", overrides: [String: String]) -> [
         // Split on first =
         guard let eqIndex = trimmed.firstIndex(of: "=") else { continue }
         let key = String(trimmed[..<eqIndex]).trimmingCharacters(in: .whitespaces)
-        let value = String(trimmed[trimmed.index(after: eqIndex)...]).trimmingCharacters(in: .whitespaces)
+        let value = String(trimmed[trimmed.index(after: eqIndex)...]).trimmingCharacters(
+            in: .whitespaces)
         // Only set if not already in overrides (process env takes priority)
         if result[key] == nil {
             result[key] = value
@@ -42,6 +43,10 @@ struct Environment {
 
     /// When true, Blackbird logs every query to stdout.
     let dbDebug: Bool
+
+    // MARK: Logging
+    /// File path for request logs.  If set, logs go here instead of stdout.
+    let logFile: String?
 
     // MARK: Auth
     /// Secret key for HMAC-signing the `user_id` cookie.
@@ -78,6 +83,8 @@ struct Environment {
         dbPath = mergedEnv["DB_PATH"] ?? "db.sqlite"
         dbDebug = mergedEnv["DB_DEBUG"].map { $0 == "true" || $0 == "1" } ?? false
 
+        logFile = mergedEnv["LOG_FILE"].flatMap { $0.isEmpty ? nil : $0 }
+
         authSecret = mergedEnv["AUTH_SECRET"] ?? "change-me"
 
         smtpHost = mergedEnv["SMTP_HOST"].flatMap { $0.isEmpty ? nil : $0 }
@@ -98,7 +105,8 @@ struct Environment {
         smtpPort: UInt16 = 587,
         smtpUsername: String? = nil,
         smtpPassword: String? = nil,
-        smtpFrom: String? = nil
+        smtpFrom: String? = nil,
+        logFile: String? = nil
     ) {
         self.port = port
         self.dbPath = dbPath
@@ -109,5 +117,6 @@ struct Environment {
         self.smtpUsername = smtpUsername
         self.smtpPassword = smtpPassword
         self.smtpFrom = smtpFrom
+        self.logFile = logFile
     }
 }

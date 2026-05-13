@@ -1,4 +1,4 @@
-// APIIntegrationTests: end-to-end HTTP tests against an in-process FlyingFox server.
+// APIIntegrationTests: end-to-end HTTP tests against an in-process SwiftNIO server.
 // Uses .serialized because tests mutate module-level globals (db, emailSender, activeAuthSecret).
 // Each test gets a fresh in-memory DB and a new server on port 0.
 

@@ -1,7 +1,7 @@
 ![Logo](logo.png)
 <!-- Big money NE - https://patorjk.com/software/taag/#p=testall&f=Bulbhead&t=swift-crud&x=none&v=4&h=4&w=80&we=false> -->
 
-A lightweight CRUD API server built with Swift, [FlyingFox](https://github.com/swhitty/FlyingFox) (HTTP), and [Blackbird](https://github.com/marcoarment/Blackbird) (SQLite).
+A lightweight CRUD API server built with Swift, [SwiftNIO](https://github.com/apple/swift-nio) (HTTP), and [Blackbird](https://github.com/marcoarment/Blackbird) (SQLite).
 
 > **Philosophy:** Intentionally frugal with dependencies. No heavy frameworks like Vapor or Hummingbird — we only pull in a lightweight HTTP server and a zero-config ORM, each chosen for high value with minimal overhead.
 
@@ -58,6 +58,7 @@ The server is configured via environment variables:
 | `PORT` | `8000` | HTTP server port |
 | `DB_PATH` | `db.sqlite` | SQLite database file path |
 | `DB_DEBUG` | — | Set to `true` or `1` to log every SQL query |
+| `LOG_FILE` | — | File path for request logs (`GET /api/posts`, etc.). Omit to print to stdout |
 | `AUTH_SECRET` | — | HMAC signing key for the `user_id` cookie. Set in production to prevent cookie forgery |
 | `SMTP_HOST` | — | SMTP server hostname (omit to fall back to print-to-stdout) |
 | `SMTP_PORT` | `587` | SMTP server port |
@@ -398,7 +399,7 @@ Bulk upsert multiple posts in a single transaction. Accepts an array of post obj
 
 This app is intentionally frugal with dependencies and only adds them when it's a big win:
 
-- **[FlyingFox](https://github.com/swhitty/FlyingFox)** — lightweight HTTP server built for Swift Concurrency.
+- **[SwiftNIO](https://github.com/apple/swift-nio)** — high-performance asynchronous event-driven network application framework.
 - **[Blackbird](https://github.com/marcoarment/Blackbird)** — SQLite ORM with zero-config schema migrations.
 
 **File layout:**
