@@ -24,8 +24,8 @@ private func sha256(_ string: String) -> String {
 @Suite("API integration", .serialized)
 final class APIIntegrationTests {
 
-    // Register routes into the global `routes` struct exactly once per test binary run.
-    // Calling registerPostRoutes()/registerSessionRoutes() twice appends duplicate handlers.
+    // Register routes into the global `routes` instance exactly once per test binary run.
+    // Route registration is idempotent (same path replaces the previous handler).
     private static let _routesRegistered: Void = {
         registerPostRoutes()
         registerSessionRoutes()
@@ -40,6 +40,7 @@ final class APIIntegrationTests {
 
     init() async throws {
         _ = Self._routesRegistered
+        await resetSendCodeRateLimitersForTesting()
 
         testDb = try Blackbird.Database.inMemoryDatabase()
         try await User.resolveSchema(in: testDb)
@@ -117,6 +118,30 @@ final class APIIntegrationTests {
         let body = try http.jsonBody(["email": "rate@test.com"])
         let (status, _, _) = try await http.request("POST", "/api/session/send-code", body: body)
         #expect(status == 429)
+    }
+
+    @Test("send-code rejects overly short and malformed emails")
+    func sendCodeInvalidEmail() async throws {
+        let shortBody = try http.jsonBody(["email": "a@b"])
+        let (s1, _, _) = try await http.request("POST", "/api/session/send-code", body: shortBody)
+        #expect(s1 == 401)
+
+        let multiAt = try http.jsonBody(["email": "a@@b.com"])
+        let (s2, _, _) = try await http.request("POST", "/api/session/send-code", body: multiAt)
+        #expect(s2 == 401)
+    }
+
+    @Test("send-code returns 429 after too many requests from the same IP")
+    func sendCodeIPRateLimited() async throws {
+        for i in 0..<10 {
+            let email = "iptest\(i)@test.com"
+            let body = try http.jsonBody(["email": email])
+            let (status, _, _) = try await http.request("POST", "/api/session/send-code", body: body)
+            #expect(status == 200, "request \(i) should succeed")
+        }
+        let overflow = try http.jsonBody(["email": "iptest_overflow@test.com"])
+        let (lastStatus, _, _) = try await http.request("POST", "/api/session/send-code", body: overflow)
+        #expect(lastStatus == 429)
     }
 
     @Test("POST /api/session/login returns HMAC-signed cookie")
@@ -379,6 +404,14 @@ final class APIIntegrationTests {
             let (_, data, _) = try await http.request("GET", "/api/posts?limit=1", cookie: cookie)
             let page = try http.decode(data, as: ListResponse.self)
             #expect(page.items.count == 1, "limit=1 should return 1")
+            #expect(page.hasMore == true)
+        }
+
+        // limit=0 clamps to 1 (minimum page size)
+        do {
+            let (_, data, _) = try await http.request("GET", "/api/posts?limit=0", cookie: cookie)
+            let page = try http.decode(data, as: ListResponse.self)
+            #expect(page.items.count == 1, "limit=0 should clamp to 1")
             #expect(page.hasMore == true)
         }
 

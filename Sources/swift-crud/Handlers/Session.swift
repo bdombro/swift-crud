@@ -28,11 +28,25 @@ private actor SendCodeRateLimiter {
         if recent.count >= maxRequests { return true }
         recent.append(now)
         timestamps[key] = recent
+        
+        // Prevent unbounded memory growth from unique IPs/emails
+        if timestamps.count > 100_000 {
+            timestamps.removeAll()
+        }
+        
         return false
+    }
+
+    /// Clears all windows — used by integration tests so per-IP/email limits do not leak across cases.
+    func resetForTesting() {
+        timestamps = [:]
     }
 }
 
 private let sendCodeRateLimiter = SendCodeRateLimiter()
+
+/// Limits send-code abuse by client IP (separate from per-email limits).
+private let sendCodeIPRateLimiter = SendCodeRateLimiter()
 
 // MARK: - Constant-time helpers
 
@@ -62,24 +76,26 @@ func login(req: HTTPRequest) async throws -> HTTPResponse {
 
     let user = try await User.read(from: db, sqlWhere: "email = ?", body.email).first
 
-    let codeData = body.code.data(using: .utf8)!
+    guard let codeData = body.code.data(using: .utf8) else {
+        return HTTPResponse.json(.badRequest, ["message": "invalid code encoding"])
+    }
     let reqHash = SHA256.hash(data: codeData).compactMap { String(format: "%02x", $0) }.joined()
 
     let hashMatch: Bool
     if let user, let hash = user.codeHash, let created = user.codeCreatedAt,
        (user.codeAttempts ?? 0) <= 2,
        created >= Date().addingTimeInterval(-600) {
-        hashMatch = reqHash == hash
+        hashMatch = constantTimeEqual(Data(reqHash.utf8), Data(hash.utf8))
     } else {
         hashMatch = false
     }
 
-    if !hashMatch, let user, let userHash = user.codeHash, reqHash != userHash {
+    if !hashMatch, let user, let userHash = user.codeHash,
+        !constantTimeEqual(Data(reqHash.utf8), Data(userHash.utf8)),
+        let created = user.codeCreatedAt, created >= Date().addingTimeInterval(-600) {
         var u = user
         u.codeAttempts = (u.codeAttempts ?? 0) + 1
         try await u.write(to: db)
-    } else if !hashMatch {
-        _ = try await db.query("SELECT 1 WHERE 1 = 0")
     }
 
     guard hashMatch, let user else {
@@ -113,8 +129,21 @@ func logout(req: HTTPRequest) async throws -> HTTPResponse {
 func sendCode(req: HTTPRequest) async throws -> HTTPResponse {
     let body = try await req.decode(as: SendCodeRequest.self)
 
-    guard body.email.contains("@") else {
+    guard body.email.contains("@"),
+        body.email.count >= 5,
+        body.email.count <= 254,
+        body.email.split(separator: "@", omittingEmptySubsequences: false).count == 2
+    else {
         return HTTPResponse.json(.unauthorized, ["message": "invalid email"])
+    }
+
+    let clientIP = req.remoteAddress ?? "unknown"
+    let ipLimited = await sendCodeIPRateLimiter.checkAndRecord(
+        key: clientIP, maxRequests: 10, windowSeconds: 60)
+    guard !ipLimited else {
+        return HTTPResponse.json(
+            .tooManyRequests,
+            ["message": "Too many code requests from this network. Try again later."])
     }
 
     let rateLimited = await sendCodeRateLimiter.checkAndRecord(
@@ -142,12 +171,18 @@ func sendCode(req: HTTPRequest) async throws -> HTTPResponse {
         try await u.write(to: db)
     } else {
         _ = try await db.query(
-            "INSERT INTO users (codeAttempts, codeCreatedAt, codeHash, email) VALUES (0, ?, ?, ?)",
-            Date(), hash, body.email)
+            "INSERT INTO users (codeAttempts, codeCreatedAt, codeHash, createdAt, email) VALUES (0, ?, ?, ?, ?)",
+            Date(), hash, Date(), body.email)
     }
 
     try await emailSender.send(code: code, to: body.email)
     return HTTPResponse.json(.ok, ["message": "success"])
+}
+
+/// Resets send-code rate limiters — `@testable` from integration tests only.
+internal func resetSendCodeRateLimitersForTesting() async {
+    await sendCodeRateLimiter.resetForTesting()
+    await sendCodeIPRateLimiter.resetForTesting()
 }
 
 // MARK: - Route registration

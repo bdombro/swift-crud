@@ -36,7 +36,7 @@ run: build kill
 run-debug: build-debug kill
     .build/debug/swift-crud
 
-alias dev := run
+alias dev := run-dev
 # Run the application in dev mode
 run-dev: kill
     swift run

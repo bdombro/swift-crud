@@ -1,17 +1,27 @@
 // Server.swift: wraps a SwiftNIO HTTP server (NIOTS/NIOTransportServices) with start/stop lifecycle and async connection handler based on NIOAsyncChannel.
 
-import Darwin
 import Foundation
 import NIO
+import NIOCore
 import NIOHTTP1
 import NIOTransportServices
 
 private typealias HTTPConnection = NIOAsyncChannel<HTTPServerRequestPart, HTTPServerResponsePart>
 
+private actor ConnectionCounter {
+    private var count = 0
+    func increment() { count += 1 }
+    func decrement() { count -= 1 }
+    var current: Int { count }
+}
+
 final class Server: @unchecked Sendable {
     let port: UInt16
     private let group: EventLoopGroup
     private var channel: Channel?
+    private var listenTask: Task<Void, Never>?
+    private var groupIsShutdown = false
+    private let connectionCounter = ConnectionCounter()
 
     /// The port the HTTP server actually bound to (may differ from `port` when port 0 is used).
     private(set) var boundPort: UInt16?
@@ -22,7 +32,9 @@ final class Server: @unchecked Sendable {
     }
 
     deinit {
-        try? group.syncShutdownGracefully()
+        if !groupIsShutdown {
+            try? group.syncShutdownGracefully()
+        }
     }
 
     /// Blocking start — used by the app entrypoint. Binds to 0.0.0.0 and runs until stopped.
@@ -42,23 +54,35 @@ final class Server: @unchecked Sendable {
     /// Non-blocking start — binds to 127.0.0.1 and returns immediately. For tests.
     func startAndListen() async throws {
         let serverChannel = try await bind(host: "127.0.0.1")
-        Task {
-            try? await withThrowingTaskGroup(of: Void.self) { group in
-                try await serverChannel.executeThenClose { inbound in
-                    for try await connection in inbound {
-                        group.addTask {
-                            await self.handleConnection(connection)
+        listenTask = Task {
+            do {
+                try await withThrowingTaskGroup(of: Void.self) { group in
+                    try await serverChannel.executeThenClose { inbound in
+                        for try await connection in inbound {
+                            group.addTask {
+                                await self.handleConnection(connection)
+                            }
                         }
                     }
                 }
+            } catch {
+                // Test server: accept loop ended or failed; errors are surfaced via channel close.
             }
         }
     }
 
     private func handleConnection(_ connection: HTTPConnection) async {
+        await connectionCounter.increment()
+        defer { Task { await connectionCounter.decrement() } }
         do {
             try await handleHTTPConnection(connection)
-        } catch { }
+        } catch let error as ChannelError where error == .inputClosed || error == .outputClosed {
+            // Normal client half-close / full-close — not a server fault.
+        } catch is CancellationError {
+        } catch {
+            Logger.access(
+                start: Date(), method: "-", path: "-", userId: "ANONYMOUS", statusCode: 500)
+        }
     }
 
     /// Internal bind helper — shared by both start modes.
@@ -87,18 +111,41 @@ final class Server: @unchecked Sendable {
         return serverChannel
     }
 
+    /// Graceful shutdown — stops accepting new connections, drains in-flight requests up to `timeout` seconds.
+    func shutdownGracefully(timeout: TimeInterval = 15) async {
+        if let channel = channel {
+            try? await channel.close()
+            self.channel = nil
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while await connectionCounter.current > 0 && Date() < deadline {
+            await Task.yield()
+        }
+
+        listenTask?.cancel()
+        listenTask = nil
+
+        try? await group.shutdownGracefully()
+        groupIsShutdown = true
+    }
+
     /// Stops the server.
     func stop() async {
+        listenTask?.cancel()
+        listenTask = nil
         if let channel = channel {
             try? await channel.close()
             self.channel = nil
         }
         try? await group.shutdownGracefully()
+        groupIsShutdown = true
     }
 
     // MARK: - Connection handler
 
     private func handleHTTPConnection(_ connection: HTTPConnection) async throws {
+        let remoteDesc = connection.channel.remoteAddress.map { String(describing: $0) }
         try await connection.executeThenClose { inbound, outbound in
             var iterator = inbound.makeAsyncIterator()
             while let part = try await iterator.next() {
@@ -110,6 +157,19 @@ final class Server: @unchecked Sendable {
                         case .head: break
                         case .body(var buf):
                             body.writeBuffer(&buf)
+                            if body.readableBytes > HTTPLimits.maxRequestBodyBytes {
+                                var plHeaders = NIOHTTP1.HTTPHeaders()
+                                plHeaders.add(name: "Content-Type", value: "text/plain")
+                                try? await outbound.write(contentsOf: [
+                                    .head(
+                                        .init(
+                                            version: head.version, status: .payloadTooLarge,
+                                            headers: plHeaders)),
+                                    .body(.byteBuffer(ByteBuffer(string: "Request body too large"))),
+                                    .end(nil),
+                                ])
+                                return
+                            }
                         case .end: break
                         }
                         if case .end = bodyPart { break }
@@ -117,6 +177,7 @@ final class Server: @unchecked Sendable {
                     await handleRequest(
                         head: head,
                         body: body.getData(at: 0, length: body.readableBytes) ?? Data(),
+                        remoteAddress: remoteDesc,
                         outbound: outbound
                     )
                 case .body, .end:
@@ -131,6 +192,7 @@ final class Server: @unchecked Sendable {
     private func handleRequest(
         head: HTTPRequestHead,
         body: Data,
+        remoteAddress: String?,
         outbound: NIOAsyncChannelOutboundWriter<HTTPServerResponsePart>
     ) async {
         let uri = head.uri
@@ -139,11 +201,15 @@ final class Server: @unchecked Sendable {
         let query = qIdx < uri.endIndex ? String(uri[uri.index(after: qIdx)...]) : ""
         let headers: RequestHeaders = head.headers
         var request = HTTPRequest(
-            method: head.method, path: path, query: query, headers: headers, body: body)
+            method: head.method, path: path, query: query, headers: headers, body: body,
+            remoteAddress: remoteAddress)
+        request.requestId = Data((0..<8).map { _ in UInt8.random(in: .min ... .max) }).base64EncodedString().trimmingCharacters(in: ["="])
         let start = Date()
 
         guard let (handler, params) = routes.route(for: head.method, path: path) else {
-            logRequest(start: start, method: head.method.rawValue, path: path, userId: "ANONYMOUS", statusCode: 404)
+            Logger.access(
+                start: start, method: head.method.rawValue, path: path, userId: "ANONYMOUS",
+                statusCode: 404, requestId: request.requestId)
             var notFoundHeaders = NIOHTTP1.HTTPHeaders()
             notFoundHeaders.add(name: "Content-Type", value: "text/plain")
             try? await outbound.write(contentsOf: [
@@ -166,8 +232,9 @@ final class Server: @unchecked Sendable {
         let userIdStr = request.wasAuthChecked
             ? request.authUserId.map(String.init) ?? "ANONYMOUS"
             : "ANONYMOUS"
-        logRequest(start: start, method: head.method.rawValue, path: path,
-                    userId: userIdStr, statusCode: Int(response.statusCode.code))
+        Logger.access(
+            start: start, method: head.method.rawValue, path: path, userId: userIdStr,
+            statusCode: Int(response.statusCode.code), requestId: request.requestId)
 
         await writeResponse(response, head: head, outbound: outbound)
     }
@@ -192,34 +259,13 @@ final class Server: @unchecked Sendable {
         ])
     }
 
-    // MARK: - Logging
-
-    private static func formatLogDate(_ date: Date) -> String {
-        var t = time_t(date.timeIntervalSince1970)
-        var tm = tm()
-        gmtime_r(&t, &tm)
-        return String(
-            format: "%04d.%02d.%02d_%02d:%02d:%02d",
-            tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-            tm.tm_hour, tm.tm_min, tm.tm_sec)
-    }
-
-    private static let internalErrorResponse = HTTPResponse(
-        statusCode: .internalServerError,
-        headers: [HTTPHeader("Content-Type"): "application/json"],
-        body: try! HTTPResponse.encoder.encode(["message": "internal server error"]))
-
-    private func logRequest(start: Date, method: String, path: String, userId: String, statusCode: Int) {
-        let durationMs = Int(Date().timeIntervalSince(start) * 1000)
-        let logQueue = logFileWriteQueue ?? DispatchQueue.global(qos: .utility)
-        let filePath = logFilePath
-        logQueue.async {
-            let line = "\(Self.formatLogDate(start)) \(statusCode) \(method) \(path) \(userId) \(durationMs)ms"
-            if let path = filePath {
-                try? "\(line)\n".write(toFile: path, atomically: true, encoding: .utf8)
-            } else {
-                print(line)
-            }
-        }
-    }
+    private static let internalErrorResponse: HTTPResponse = {
+        let body =
+            (try? HTTPResponse.encoder.encode(["message": "internal server error"]))
+            ?? Data(#"{"message":"internal server error"}"#.utf8)
+        return HTTPResponse(
+            statusCode: .internalServerError,
+            headers: [HTTPHeader("Content-Type"): "application/json"],
+            body: body)
+    }()
 }

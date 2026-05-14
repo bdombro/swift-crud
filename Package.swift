@@ -1,4 +1,4 @@
-// swift-tools-version: 6.2
+// swift-tools-version: 6.3
 // Package.swift: Swift Package Manager manifest for the swift-crud executable target and its test target, with dependencies on Blackbird (SQLite ORM), swift-nio, and swift-nio-transport-services.
 
 import PackageDescription

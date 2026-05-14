@@ -14,6 +14,17 @@ enum SMTPTLSMode: String {
 
 // MARK: - .env file loading
 
+/// Strips optional surrounding quotes from a `.env` value (exposed for unit tests).
+internal func stripDotEnvQuotes(_ value: String) -> String {
+    var v = value
+    if v.count >= 2, v.hasPrefix("\""), v.hasSuffix("\"") {
+        v = String(v.dropFirst().dropLast())
+    } else if v.count >= 2, v.hasPrefix("'"), v.hasSuffix("'") {
+        v = String(v.dropFirst().dropLast())
+    }
+    return v
+}
+
 /// Load key=value pairs from a .env file, returning them as a dictionary.
 /// Does not override values already present in `overrides`.
 private func loadDotEnv(path: String = ".env", overrides: [String: String]) -> [String: String] {
@@ -30,8 +41,9 @@ private func loadDotEnv(path: String = ".env", overrides: [String: String]) -> [
         // Split on first =
         guard let eqIndex = trimmed.firstIndex(of: "=") else { continue }
         let key = String(trimmed[..<eqIndex]).trimmingCharacters(in: .whitespaces)
-        let value = String(trimmed[trimmed.index(after: eqIndex)...]).trimmingCharacters(
+        var value = String(trimmed[trimmed.index(after: eqIndex)...]).trimmingCharacters(
             in: .whitespaces)
+        value = stripDotEnvQuotes(value)
         // Only set if not already in overrides (process env takes priority)
         if result[key] == nil {
             result[key] = value
@@ -53,10 +65,6 @@ struct Environment {
 
     /// When true, Blackbird logs every query to stdout.
     let dbDebug: Bool
-
-    // MARK: Logging
-    /// File path for request logs.  If set, logs go here instead of stdout.
-    let logFile: String?
 
     // MARK: Auth
     /// Secret key for HMAC-signing the `user_id` cookie.
@@ -99,8 +107,6 @@ struct Environment {
         dbPath = mergedEnv["DB_PATH"] ?? "db.sqlite"
         dbDebug = mergedEnv["DB_DEBUG"].map { $0 == "true" || $0 == "1" } ?? false
 
-        logFile = mergedEnv["LOG_FILE"].flatMap { $0.isEmpty ? nil : $0 }
-
         authSecret = mergedEnv["AUTH_SECRET"] ?? "change-me"
 
         smtpHost = mergedEnv["SMTP_HOST"].flatMap { $0.isEmpty ? nil : $0 }
@@ -125,8 +131,7 @@ struct Environment {
         smtpPassword: String? = nil,
         smtpFrom: String? = nil,
         smtpTLSMode: SMTPTLSMode = .starttls,
-        smtpTlsInsecure: Bool = false,
-        logFile: String? = nil
+        smtpTlsInsecure: Bool = false
     ) {
         self.port = port
         self.dbPath = dbPath
@@ -139,6 +144,5 @@ struct Environment {
         self.smtpFrom = smtpFrom
         self.smtpTLSMode = smtpTLSMode
         self.smtpTlsInsecure = smtpTlsInsecure
-        self.logFile = logFile
     }
 }

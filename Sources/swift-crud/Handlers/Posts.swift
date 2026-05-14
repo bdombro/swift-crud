@@ -55,11 +55,17 @@ func createPost(req: HTTPRequest) async throws -> HTTPResponse {
         return HTTPResponse.json(.unauthorized, ["message": "unauthorized"])
     }
     let body = try await req.decode(as: CreateRequestBody.self)
+    guard body.content.count <= HTTPLimits.maxPostContentBytes else {
+        return HTTPResponse.json(.badRequest, ["message": "content too long"])
+    }
+    guard body.variant.count <= HTTPLimits.maxPostContentBytes else {
+        return HTTPResponse.json(.badRequest, ["message": "variant too long"])
+    }
     let now = Date()
 
     _ = try await db.query(upsertSQL,
         body.createdAt ?? now,
-        body.id ?? UUID().uuidString,
+        isValidID(body.id ?? "") ? body.id! : UUID().uuidString,
         body.content,
         body.updatedAt ?? now,
         userId,
@@ -82,9 +88,11 @@ func deletePost(req: HTTPRequest) async throws -> HTTPResponse {
     guard let userId = req.authUserId else {
         return HTTPResponse.json(.unauthorized, ["message": "unauthorized"])
     }
-    let id = req.routeParameters["id"]!
+    guard let raw = req.routeParameters["id"], isValidID(raw) else {
+        return HTTPResponse.json(.badRequest, ["message": "invalid post id"])
+    }
 
-    _ = try await db.query("DELETE FROM posts WHERE id = ? AND userId = ?", id, userId)
+    _ = try await db.query("DELETE FROM posts WHERE id = ? AND userId = ?", raw, userId)
     return HTTPResponse.json(.ok, ["message": "success"])
 }
 
@@ -93,9 +101,11 @@ func getPost(req: HTTPRequest) async throws -> HTTPResponse {
     guard let userId = req.authUserId else {
         return HTTPResponse.json(.unauthorized, ["message": "unauthorized"])
     }
-    let id = req.routeParameters["id"]!
+    guard let raw = req.routeParameters["id"], isValidID(raw) else {
+        return HTTPResponse.json(.badRequest, ["message": "invalid post id"])
+    }
 
-    guard let post = try await Post.read(from: db, sqlWhere: "id = ? AND userId = ?", id, userId).first else {
+    guard let post = try await Post.read(from: db, sqlWhere: "id = ? AND userId = ?", raw, userId).first else {
         return HTTPResponse.json(.notFound, ["error": "Post not found"])
     }
     return HTTPResponse.json(.ok, post)
@@ -108,13 +118,18 @@ func listPosts(req: HTTPRequest) async throws -> HTTPResponse {
     }
 
     let query = req.queryParameters
-    let limit = min(Int(query["limit"] ?? "10") ?? 10, 1000)
+    let limit = max(1, min(Int(query["limit"] ?? "10") ?? 10, 1000))
     let limitPlusOne = limit + 1
+    if let afterStr = query["after"] {
+        guard ISO8601DateFormatter().date(from: afterStr) != nil else {
+            return HTTPResponse.json(.badRequest, ["message": "invalid after cursor"])
+        }
+    }
     let afterDate = query["after"].flatMap { ISO8601DateFormatter().date(from: $0) }
 
     var posts: [Post]
     if let after = afterDate {
-        posts = try await Post.read(from: db, sqlWhere: "userId = ? AND updatedAt >= ? ORDER BY updatedAt DESC LIMIT ?", userId, after, limitPlusOne)
+        posts = try await Post.read(from: db, sqlWhere: "userId = ? AND updatedAt > ? ORDER BY updatedAt DESC LIMIT ?", userId, after, limitPlusOne)
     } else {
         posts = try await Post.read(from: db, sqlWhere: "userId = ? ORDER BY updatedAt DESC LIMIT ?", userId, limitPlusOne)
     }
@@ -130,16 +145,24 @@ func updatePost(req: HTTPRequest) async throws -> HTTPResponse {
     guard let userId = req.authUserId else {
         return HTTPResponse.json(.unauthorized, ["message": "unauthorized"])
     }
-    let id = req.routeParameters["id"]!
+    guard let raw = req.routeParameters["id"] else {
+        return HTTPResponse.json(.badRequest, ["message": "missing id parameter"])
+    }
+    guard isValidID(raw) else {
+        return HTTPResponse.json(.badRequest, ["message": "invalid post id"])
+    }
     let body = try await req.decode(as: UpdateRequestBody.self)
+    guard body.content.count <= HTTPLimits.maxPostContentBytes else {
+        return HTTPResponse.json(.badRequest, ["message": "content too long"])
+    }
     let updateTime = body.updatedAt ?? Date()
 
     _ = try await db.query(
         "UPDATE posts SET content = ?, updatedAt = ? WHERE id = ? AND userId = ? AND updatedAt < ?",
-        body.content, updateTime, id, userId, updateTime)
+        body.content, updateTime, raw, userId, updateTime)
 
     let updated = try await Post.read(
-        from: db, sqlWhere: "id = ? AND userId = ? AND updatedAt = ?", id, userId, updateTime
+        from: db, sqlWhere: "id = ? AND userId = ? AND updatedAt = ?", raw, userId, updateTime
     ).first != nil
 
     if updated {
@@ -157,6 +180,17 @@ func upsertManyPosts(req: HTTPRequest) async throws -> HTTPResponse {
 
     let payloads = try await req.decode(as: [UpsertPostPayload].self)
     guard !payloads.isEmpty else { return HTTPResponse.json(.ok, ["message": "success"]) }
+    for post in payloads {
+        guard post.content.count <= HTTPLimits.maxPostContentBytes else {
+            return HTTPResponse.json(.badRequest, ["message": "content too long"])
+        }
+        guard post.variant.count <= HTTPLimits.maxPostContentBytes else {
+            return HTTPResponse.json(.badRequest, ["message": "variant too long"])
+        }
+        guard isValidID(post.id) else {
+            return HTTPResponse.json(.badRequest, ["message": "invalid id format"])
+        }
+    }
 
     try await db.transaction { core in
         for post in payloads {

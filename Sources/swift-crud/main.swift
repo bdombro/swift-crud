@@ -3,13 +3,14 @@
 import Blackbird
 import Darwin
 import Foundation
+import NIO
 
 /// Serial queue used to bridge C signal handlers into the async world.
 private let signalQueue = DispatchQueue(label: "swift-crud.signal")
 
 /// Set by C signal handlers when SIGTERM / SIGINT is received.
 /// Read-only by async code via the polling loop on signalQueue.
-private var shutdownRequested = false
+private nonisolated(unsafe) var shutdownRequested = false
 
 // Installed at module init time (before main()). Can only set the global flag.
 signal(SIGTERM) { _ in
@@ -34,11 +35,14 @@ func waitForShutdownSignal() async {
     }
 }
 
+/// Application bootstrap: load environment and validate secrets, open SQLite and ensure schemas,
+/// configure globals (email, DB, auth), register routes, start the HTTP server, then block until
+/// SIGTERM/SIGINT and shut down the server and optional SMTP resources gracefully.
 func main() async throws {
     let env = Environment()
 
     guard env.authSecret != "change-me" else {
-        print("error: AUTH_SECRET environment variable must be set. Run `just keygen-cookie-secret` to generate one.")
+        Logger.error("AUTH_SECRET environment variable must be set. Run `just keygen-cookie-secret` to generate one.")
         Darwin.exit(1)
     }
 
@@ -53,14 +57,14 @@ func main() async throws {
     try await Post.resolveSchema(in: database)
 
     let sender = makeEmailSender(from: env)
+    if sender is SMTPEmailSender {
+        smtpEventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+    }
     activeAuthSecret = env.authSecret
     emailSender = sender
     db = database
 
-    if let logFile = env.logFile {
-        logFileWriteQueue = DispatchQueue(label: "swift-crud.access-log", qos: .utility)
-        logFilePath = logFile
-    }
+    Logger.setup()
 
     registerPostRoutes()
     registerSessionRoutes()
@@ -68,19 +72,38 @@ func main() async throws {
 
     let server = Server(port: env.port)
 
-    // Non-blocking start — server is listening but we don't block here
-    try await server.startAndListen()
-    print("Server running on port \(env.port)")
-    if logFileWriteQueue != nil, let path = logFilePath {
-        print("Request logs: \(path)")
+    Task {
+        do {
+            try await server.start()
+        } catch {
+            Logger.error("HTTP server stopped with error — \(error)")
+            Darwin.exit(1)
+        }
     }
+
+    var bindWait = 0
+    while server.boundPort == nil && bindWait < 500 {
+        try await Task.sleep(nanoseconds: 1_000_000)
+        bindWait += 1
+    }
+    guard server.boundPort != nil else {
+        Logger.error("Server did not bind to port \(env.port)")
+        Darwin.exit(1)
+    }
+
+    Logger.info("Server running on port \(env.port)")
 
     // Wait for SIGTERM / SIGINT — then initiate graceful shutdown
     await waitForShutdownSignal()
-    print("Shutting down gracefully...")
+    Logger.info("Shutting down gracefully...")
 
     await server.stop()
-    print("Server stopped.")
+    Logger.shutdown()
+    if let smtpGroup = smtpEventLoopGroup {
+        try? await smtpGroup.shutdownGracefully()
+        smtpEventLoopGroup = nil
+    }
+    Logger.info("Server stopped.")
 }
 
 try await main()

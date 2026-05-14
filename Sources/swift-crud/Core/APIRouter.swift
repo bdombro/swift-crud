@@ -9,11 +9,13 @@ private enum RouteSegment: Sendable {
 
 private struct Route: Sendable {
     let method: HTTPMethod
+    let originalPath: String
     let segments: [RouteSegment]
     let handler: Handler
 
     init(method: HTTPMethod, path: String, handler: @escaping Handler) {
         self.method = method
+        self.originalPath = path
         self.segments = path
             .split(separator: "/", omittingEmptySubsequences: true)
             .map { segment in
@@ -46,18 +48,22 @@ struct Routes: Sendable {
     private var routes: [Route] = []
 
     mutating func get(_ path: String, handler: @escaping Handler) {
+        routes.removeAll { $0.method == .GET && $0.originalPath == path }
         routes.append(Route(method: .GET, path: path, handler: handler))
     }
 
     mutating func post(_ path: String, handler: @escaping Handler) {
+        routes.removeAll { $0.method == .POST && $0.originalPath == path }
         routes.append(Route(method: .POST, path: path, handler: handler))
     }
 
     mutating func put(_ path: String, handler: @escaping Handler) {
+        routes.removeAll { $0.method == .PUT && $0.originalPath == path }
         routes.append(Route(method: .PUT, path: path, handler: handler))
     }
 
     mutating func del(_ path: String, handler: @escaping Handler) {
+        routes.removeAll { $0.method == .DELETE && $0.originalPath == path }
         routes.append(Route(method: .DELETE, path: path, handler: handler))
     }
 

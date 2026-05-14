@@ -50,7 +50,8 @@ struct HTTPClient {
 
     /// Extracts the value of a named cookie from a `Set-Cookie` response header.
     func extractCookie(from headers: [String: String], name: String) -> String? {
-        let raw = headers["Set-Cookie"] ?? headers["set-cookie"] ?? ""
+        let raw =
+            headers.first(where: { $0.key.lowercased() == "set-cookie" })?.value ?? ""
         guard raw.hasPrefix("\(name)=") else { return nil }
         return raw
             .split(separator: ";")

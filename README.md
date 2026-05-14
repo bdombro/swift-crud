@@ -57,7 +57,6 @@ The server is configured via environment variables:
 | `PORT` | `8000` | HTTP server port |
 | `DB_PATH` | `db.sqlite` | SQLite database file path |
 | `DB_DEBUG` | — | Set to `true` or `1` to log every SQL query |
-| `LOG_FILE` | — | File path for request logs (`GET /api/posts`, etc.). Omit to print to stdout |
 | `AUTH_SECRET` | — | HMAC signing key for the `user_id` cookie. Set in production to prevent cookie forgery |
 | `SMTP_HOST` | — | SMTP server hostname (omit to fall back to print-to-stdout) |
 | `SMTP_PORT` | `587` | SMTP server port |
@@ -71,8 +70,6 @@ Example with email sending:
 PORT=9000 SMTP_HOST=smtp.example.com SMTP_USERNAME=user@example.com \
   SMTP_PASSWORD=secret SMTP_FROM=noreply@example.com just run
 ```
-
----
 
 ## API Reference
 
@@ -405,18 +402,27 @@ This app is intentionally frugal with dependencies and only adds them when it's 
 
 ```
 Sources/swift-crud/
-├── main.swift          # App entrypoint: DB setup, server launch
+├── main.swift              # App entrypoint: DB setup, server launch
 ├── Core/
-│   ├── Server.swift    # Server lifecycle & route registration
-│   ├── APIRouter.swift # Fluent route builder (get / post / put / delete)
-│   └── HTTPHelpers.swift # Request parsing, auth, JSON responses
+│   ├── Server.swift        # NIO HTTP server lifecycle
+│   ├── AccessLogger.swift  # One-line access logs (stdout / LOG_FILE)
+│   ├── APIRouter.swift     # Route table (get / post / put / delete)
+│   ├── EmailSender.swift   # Email protocol + print fallback + factory
+│   ├── SMTPEmailSender.swift # NIO SMTP client (STARTTLS / TLS)
+│   ├── Environment.swift   # Env + .env loading
+│   ├── Globals.swift       # Module singletons (db, auth secret, email, log paths)
+│   ├── HTTPLimits.swift    # Request body / content size caps
+│   ├── HTTPRequest.swift   # Request type + query parsing + handler typealias
+│   └── HTTPResponse.swift  # Response type + JSON helper
+├── Security/
+│   └── AuthCookie.swift    # HMAC-signed session cookie helpers
 ├── Handlers/
-│   ├── Session.swift   # Auth endpoints (send-code, login, logout, session)
-│   ├── Posts.swift     # Post CRUD endpoints
-│   └── Users.swift     # User endpoint stubs (future expansion)
+│   ├── Session.swift       # Auth endpoints (send-code, login, logout, session)
+│   ├── Posts.swift         # Post CRUD endpoints
+│   └── Health.swift        # GET /healthz
 └── Model/
-    ├── User.swift      # User Blackbird model
-    └── Post.swift      # Post Blackbird model
+    ├── User.swift          # User Blackbird model
+    └── Post.swift          # Post Blackbird model
 ```
 
 ## Contributing

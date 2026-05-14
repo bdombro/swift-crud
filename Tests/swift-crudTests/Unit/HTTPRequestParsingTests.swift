@@ -14,7 +14,9 @@ private func makeRequest(
     var headers = NIOHTTP1.HTTPHeaders()
     if let cookieHeader { headers.add(name: "Cookie", value: cookieHeader) }
     let queryString = query.map { "\($0.name)=\($0.value)" }.joined(separator: "&")
-    return HTTPRequest(method: .GET, path: "/test", query: queryString, headers: headers, body: Data())
+    return HTTPRequest(
+        method: .GET, path: "/test", query: queryString, headers: headers, body: Data(),
+        remoteAddress: nil)
 }
 
 @Suite("HTTPRequest parsing")
@@ -42,6 +44,15 @@ struct HTTPRequestParsingTests {
         ])
         #expect(req.queryParameters["limit"] == "10")
         #expect(req.queryParameters["after"] == "2026-01-01T00:00:00Z")
+    }
+
+    @Test("duplicate query params do not crash, keeps first value")
+    func duplicateParams() {
+        let req = makeRequest(query: [
+            .init(name: "limit", value: "10"),
+            .init(name: "limit", value: "20"),
+        ])
+        #expect(req.queryParameters["limit"] == "10")
     }
 
     // MARK: cookie(_:)

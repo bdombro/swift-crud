@@ -86,4 +86,21 @@ struct EnvironmentTests {
     func dbDebugTrue() {
         #expect(Environment(dbDebug: true).dbDebug == true)
     }
+
+    // MARK: .env value parsing
+
+    @Test("stripDotEnvQuotes removes balanced double quotes")
+    func stripDoubleQuotes() {
+        #expect(stripDotEnvQuotes("\"hello\"") == "hello")
+    }
+
+    @Test("stripDotEnvQuotes removes balanced single quotes")
+    func stripSingleQuotes() {
+        #expect(stripDotEnvQuotes("'world'") == "world")
+    }
+
+    @Test("stripDotEnvQuotes leaves unquoted values unchanged")
+    func stripUnquoted() {
+        #expect(stripDotEnvQuotes("plain") == "plain")
+    }
 }
