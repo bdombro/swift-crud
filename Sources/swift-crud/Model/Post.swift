@@ -1,5 +1,3 @@
-// Post.swift: Blackbird model for the posts SQLite table (id, content, createdAt, updatedAt, userId, variant) — conforms to Codable for JSON serialization.
-
 import Blackbird
 import Foundation
 
@@ -13,6 +11,7 @@ struct Post: BlackbirdModel, Codable {
     @BlackbirdColumn var updatedAt: Date
     @BlackbirdColumn var userId: Int
     @BlackbirdColumn var variant: String
+    @BlackbirdColumn var isDeleted: Bool = false
 
     nonisolated(unsafe) static var indexes: [[BlackbirdColumnKeyPath]] = [
         [\.$userId, \.$updatedAt]

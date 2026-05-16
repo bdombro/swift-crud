@@ -12,6 +12,7 @@ struct CreateRequestBody: Codable {
     var content: String
     var updatedAt: Date?
     var variant: String
+    var isDeleted: Bool?
 }
 
 /// Paginated list of posts returned to the client.
@@ -24,6 +25,7 @@ struct ListResponse: Codable {
 struct UpdateRequestBody: Codable {
     var content: String
     var updatedAt: Date?
+    var isDeleted: Bool?
 }
 
 /// Payload for each item in a bulk upsert request.
@@ -33,18 +35,20 @@ struct UpsertPostPayload: Codable {
     var content: String
     var updatedAt: Date
     var variant: String
+    var isDeleted: Bool
 }
 
 // MARK: - SQL
 
 private let upsertSQL = """
-    INSERT INTO posts (createdAt, id, content, updatedAt, userId, variant)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO posts (createdAt, id, content, updatedAt, userId, variant, isDeleted)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
     content = excluded.content,
     variant = excluded.variant,
+    isDeleted = excluded.isDeleted,
     updatedAt = excluded.updatedAt
-    WHERE posts.updatedAt < excluded.updatedAt AND posts.userId = excluded.userId
+    WHERE posts.userId = excluded.userId
 """
 
 // MARK: - Handlers (alphabetical)
@@ -69,7 +73,8 @@ func createPost(req: HTTPRequest) async throws -> HTTPResponse {
         body.content,
         body.updatedAt ?? now,
         userId,
-        body.variant)
+        body.variant,
+        body.isDeleted ?? false)
 
     return HTTPResponse.json(.created, ["message": "success"])
 }
@@ -120,12 +125,14 @@ func listPosts(req: HTTPRequest) async throws -> HTTPResponse {
     let query = req.queryParameters
     let limit = max(1, min(Int(query["limit"] ?? "10") ?? 10, 1000))
     let limitPlusOne = limit + 1
-    if let afterStr = query["after"] {
-        guard ISO8601DateFormatter().date(from: afterStr) != nil else {
+
+    var afterDate: Date? = nil
+    if let afterStr = query["after"], !afterStr.isEmpty {
+        guard let date = ISO8601DateFormatter().date(from: afterStr) else {
             return HTTPResponse.json(.badRequest, ["message": "invalid after cursor"])
         }
+        afterDate = date
     }
-    let afterDate = query["after"].flatMap { ISO8601DateFormatter().date(from: $0) }
 
     var posts: [Post]
     if let after = afterDate {
@@ -140,8 +147,8 @@ func listPosts(req: HTTPRequest) async throws -> HTTPResponse {
     return HTTPResponse.json(.ok, ListResponse(items: posts, hasMore: hasMore))
 }
 
-/// Update a post.  The request must supply an `updatedAt` newer than the stored value.
-func updatePost(req: HTTPRequest) async throws -> HTTPResponse {
+/// Put a post.  Acts as a complete replacement or a fallback to create.
+func putPost(req: HTTPRequest) async throws -> HTTPResponse {
     guard let userId = req.authUserId else {
         return HTTPResponse.json(.unauthorized, ["message": "unauthorized"])
     }
@@ -151,24 +158,24 @@ func updatePost(req: HTTPRequest) async throws -> HTTPResponse {
     guard isValidID(raw) else {
         return HTTPResponse.json(.badRequest, ["message": "invalid post id"])
     }
-    let body = try await req.decode(as: UpdateRequestBody.self)
+    let body = try await req.decode(as: CreateRequestBody.self)
     guard body.content.count <= HTTPLimits.maxPostContentBytes else {
         return HTTPResponse.json(.badRequest, ["message": "content too long"])
     }
-    let updateTime = body.updatedAt ?? Date()
+    guard body.variant.count <= HTTPLimits.maxPostContentBytes else {
+        return HTTPResponse.json(.badRequest, ["message": "variant too long"])
+    }
+    let now = Date()
+    let updateTime = body.updatedAt ?? now
 
-    _ = try await db.query(
-        "UPDATE posts SET content = ?, updatedAt = ? WHERE id = ? AND userId = ? AND updatedAt < ?",
-        body.content, updateTime, raw, userId, updateTime)
+    let rows = try await db.query(
+        upsertSQL + " RETURNING id",
+        body.createdAt ?? now, raw, body.content, updateTime, userId, body.variant, body.isDeleted ?? false)
 
-    let updated = try await Post.read(
-        from: db, sqlWhere: "id = ? AND userId = ? AND updatedAt = ?", raw, userId, updateTime
-    ).first != nil
-
-    if updated {
+    if !rows.isEmpty {
         return HTTPResponse.json(.ok, ["message": "success"])
     } else {
-        return HTTPResponse.json(.notFound, ["error": "Post not found or supplied update_at is less than existing"])
+        return HTTPResponse.json(.notFound, ["error": "Post not found or unauthorized"])
     }
 }
 
@@ -194,7 +201,7 @@ func upsertManyPosts(req: HTTPRequest) async throws -> HTTPResponse {
 
     try await db.transaction { core in
         for post in payloads {
-            _ = try core.query(upsertSQL, post.createdAt, post.id, post.content, post.updatedAt, userId, post.variant)
+            _ = try core.query(upsertSQL, post.createdAt, post.id, post.content, post.updatedAt, userId, post.variant, post.isDeleted)
         }
     }
 
@@ -207,10 +214,10 @@ func upsertManyPosts(req: HTTPRequest) async throws -> HTTPResponse {
 func registerPostRoutes() {
     routes.get("/api/posts", handler: listPosts)
     routes.post("/api/posts", handler: createPost)
-    routes.post("/api/posts/upsert-many", handler: upsertManyPosts)
     routes.del("/api/posts", handler: deleteAllPosts)
     routes.get("/api/posts/:id", handler: getPost)
-    routes.put("/api/posts/:id", handler: updatePost)
+    routes.put("/api/posts/:id", handler: putPost)
     routes.del("/api/posts/:id", handler: deletePost)
+    routes.post("/api/posts/upsert-many", handler: upsertManyPosts)
 }
 

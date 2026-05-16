@@ -14,6 +14,20 @@ private enum TestError: Error {
     case loginFailed
 }
 
+private struct CreatePostRequest: Encodable {
+    let id: String
+    let content: String
+    let variant: String
+    let isDeleted: Bool
+}
+
+private struct UpdatePostRequest: Encodable {
+    let content: String
+    let variant: String
+    let updatedAt: String
+    let isDeleted: Bool
+}
+
 private func sha256(_ string: String) -> String {
     let data = Data(string.utf8)
     return SHA256.hash(data: data)
@@ -120,7 +134,7 @@ final class APIIntegrationTests {
         #expect(status == 429)
     }
 
-    @Test("send-code rejects overly short and malformed emails")
+    @Test("POST /api/session/send-code rejects overly short and malformed emails")
     func sendCodeInvalidEmail() async throws {
         let shortBody = try http.jsonBody(["email": "a@b"])
         let (s1, _, _) = try await http.request("POST", "/api/session/send-code", body: shortBody)
@@ -131,7 +145,7 @@ final class APIIntegrationTests {
         #expect(s2 == 401)
     }
 
-    @Test("send-code returns 429 after too many requests from the same IP")
+    @Test("POST /api/session/send-code returns 429 after too many requests from the same IP")
     func sendCodeIPRateLimited() async throws {
         for i in 0..<10 {
             let email = "iptest\(i)@test.com"
@@ -156,7 +170,7 @@ final class APIIntegrationTests {
         #expect(AuthCookie.verify(cookie, secret: "test-secret") == userId)
     }
 
-    @Test("wrong code 3 times locks account; correct code then also fails")
+    @Test("POST /api/session/login wrong code 3 times locks account; correct code then also fails")
     func loginAttemptsExhausted() async throws {
         try await seedUser(email: "lock@test.com", code: "12345678")
 
@@ -205,13 +219,14 @@ final class APIIntegrationTests {
 
     // MARK: - Post CRUD tests
 
-    @Test("full post CRUD round-trip: create, list, get, update, delete, 404")
+    @Test("POST /api/posts, GET /api/posts, GET /api/posts/:id, PUT /api/posts/:id, DELETE /api/posts/:id round-trip")
     func postCrudRoundTrip() async throws {
         try await seedUser(email: "crud@test.com")
         let cookie = try await login(email: "crud@test.com")
 
         // Create
-        let createBody = try http.jsonBody(["id": "e2e-1", "content": "Hello", "variant": "note"])
+        let createBody = try http.jsonBody(CreatePostRequest(
+            id: "e2e-1", content: "Hello", variant: "note", isDeleted: false))
         let (createStatus, _, _) = try await http.request(
             "POST", "/api/posts", body: createBody, cookie: cookie)
         #expect(createStatus == 201)
@@ -222,6 +237,7 @@ final class APIIntegrationTests {
         let list = try http.decode(listData, as: ListResponse.self)
         #expect(list.items.count == 1)
         #expect(list.items[0].id == "e2e-1")
+        #expect(list.items[0].isDeleted == false)
 
         // Get
         let (getStatus, getData, _) = try await http.request(
@@ -229,13 +245,21 @@ final class APIIntegrationTests {
         #expect(getStatus == 200)
         let post = try http.decode(getData, as: Post.self)
         #expect(post.content == "Hello")
+        #expect(post.isDeleted == false)
 
         // Update (updatedAt must be newer than current)
         let newTime = ISO8601DateFormatter().string(from: Date().addingTimeInterval(60))
-        let updateBody = try http.jsonBody(["content": "Updated", "updatedAt": newTime])
+        let updateBody = try http.jsonBody(UpdatePostRequest(
+            content: "Updated", variant: "note", updatedAt: newTime, isDeleted: true))
         let (updateStatus, _, _) = try await http.request(
             "PUT", "/api/posts/e2e-1", body: updateBody, cookie: cookie)
         #expect(updateStatus == 200)
+
+        let (updatedGetStatus, updatedGetData, _) = try await http.request(
+            "GET", "/api/posts/e2e-1", cookie: cookie)
+        #expect(updatedGetStatus == 200)
+        let updatedPost = try http.decode(updatedGetData, as: Post.self)
+        #expect(updatedPost.isDeleted == true)
 
         // Delete
         let (deleteStatus, _, _) = try await http.request(
@@ -248,8 +272,8 @@ final class APIIntegrationTests {
         #expect(notFoundStatus == 404)
     }
 
-    @Test("PUT with stale updatedAt returns 404")
-    func putStaleTimestamp() async throws {
+    @Test("PUT /api/posts/:id clobbers existing post")
+    func postPut() async throws {
         try await seedUser(email: "stale@test.com")
         let cookie = try await login(email: "stale@test.com")
 
@@ -262,31 +286,38 @@ final class APIIntegrationTests {
         _ = try await http.request("POST", "/api/posts", body: createBody, cookie: cookie)
 
         // Stale updatedAt (before the current one)
-        let staleStr = ISO8601DateFormatter().string(from: now.addingTimeInterval(-60))
-        let staleBody = try http.jsonBody(["content": "Stale", "updatedAt": staleStr])
+        let olderStr = ISO8601DateFormatter().string(from: now.addingTimeInterval(-60))
+        let olderBody = try http.jsonBody(UpdatePostRequest(
+            content: "Overwritten", variant: "note", updatedAt: olderStr, isDeleted: false))
         let (status, _, _) = try await http.request(
-            "PUT", "/api/posts/stale-1", body: staleBody, cookie: cookie)
-        #expect(status == 404)
+            "PUT", "/api/posts/stale-1", body: olderBody, cookie: cookie)
+        #expect(status == 200)
+        
+        let (getStatus, getData, _) = try await http.request(
+            "GET", "/api/posts/stale-1", cookie: cookie)
+        #expect(getStatus == 200)
+        let post = try http.decode(getData, as: Post.self)
+        #expect(post.content == "Overwritten")
     }
 
     @Test("POST /api/posts/upsert-many inserts all posts")
-    func upsertMany() async throws {
+    func postUpsertMany() async throws {
         try await seedUser(email: "bulk@test.com")
         let cookie = try await login(email: "bulk@test.com")
 
         let now = ISO8601DateFormatter().string(from: Date())
-        let payload: [[String: String]] = [
+        let payload: [[String: Any]] = [
             [
                 "id": "b1", "content": "First", "variant": "note", "createdAt": now,
-                "updatedAt": now,
+                "updatedAt": now, "isDeleted": false,
             ],
             [
                 "id": "b2", "content": "Second", "variant": "note", "createdAt": now,
-                "updatedAt": now,
+                "updatedAt": now, "isDeleted": true,
             ],
             [
                 "id": "b3", "content": "Third", "variant": "note", "createdAt": now,
-                "updatedAt": now,
+                "updatedAt": now, "isDeleted": false,
             ],
         ]
         let body = try JSONSerialization.data(withJSONObject: payload)
@@ -297,6 +328,7 @@ final class APIIntegrationTests {
         let (_, listData, _) = try await http.request("GET", "/api/posts?limit=10", cookie: cookie)
         let list = try http.decode(listData, as: ListResponse.self)
         #expect(list.items.count == 3)
+        #expect(list.items.first(where: { $0.id == "b2" })?.isDeleted == true)
     }
 
     @Test("DELETE /api/posts removes only the authenticated user's posts")
@@ -330,7 +362,7 @@ final class APIIntegrationTests {
         #expect(list2.items.count == 1)
     }
 
-    @Test("pagination: first page has 10 items with hasMore=true; second page returns remainder")
+    @Test("GET /api/posts pagination: first page has 10 items with hasMore=true; second page returns remainder")
     func pagination() async throws {
         try await seedUser(email: "page@test.com")
         let cookie = try await login(email: "page@test.com")
@@ -359,7 +391,7 @@ final class APIIntegrationTests {
         #expect(!page2.items.isEmpty)
     }
 
-    @Test("limit parameter: default, custom, edge cases, invalid value")
+    @Test("GET /api/posts limit parameter: default, custom, edge cases, invalid value")
     func limitParameter() async throws {
         try await seedUser(email: "limit@test.com")
         let cookie = try await login(email: "limit@test.com")

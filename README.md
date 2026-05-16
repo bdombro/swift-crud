@@ -204,7 +204,8 @@ List the authenticated user's posts, newest first.
       "createdAt": "2026-05-12T00:00:00Z",
       "updatedAt": "2026-05-12T00:00:00Z",
       "userId": 1,
-      "variant": "note"
+      "variant": "note",
+      "isDeleted": false
     }
   ],
   "hasMore": false

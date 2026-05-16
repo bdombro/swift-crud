@@ -8,13 +8,14 @@ import Foundation
 
 // Mirrors the private upsertSQL from Posts.swift — tested here at the DB layer.
 private let upsertSQL = """
-    INSERT INTO posts (createdAt, id, content, updatedAt, userId, variant)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO posts (createdAt, id, content, updatedAt, userId, variant, isDeleted)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
     content = excluded.content,
     variant = excluded.variant,
+    isDeleted = excluded.isDeleted,
     updatedAt = excluded.updatedAt
-    WHERE posts.updatedAt < excluded.updatedAt AND posts.userId = excluded.userId
+    WHERE posts.userId = excluded.userId
 """
 
 @Suite("Post model")
@@ -36,11 +37,12 @@ struct PostModelTests {
         try await Post.resolveSchema(in: db)
 
         let now = Date()
-        try await db.query(upsertSQL, now, "post-1", "hello", now, 1, "note")
+        try await db.query(upsertSQL, now, "post-1", "hello", now, 1, "note", false)
 
         let posts = try await Post.read(from: db, sqlWhere: "id = ?", "post-1")
         #expect(posts.count == 1)
         #expect(posts[0].content == "hello")
+        #expect(posts[0].isDeleted == false)
     }
 
     @Test("upsert with newer updatedAt updates content")
@@ -51,14 +53,15 @@ struct PostModelTests {
         let t1 = Date()
         let t2 = t1.addingTimeInterval(60)
 
-        try await db.query(upsertSQL, t1, "post-1", "original", t1, 1, "note")
-        try await db.query(upsertSQL, t1, "post-1", "updated", t2, 1, "note")
+        try await db.query(upsertSQL, t1, "post-1", "original", t1, 1, "note", false)
+        try await db.query(upsertSQL, t1, "post-1", "updated", t2, 1, "note", true)
 
         let post = try #require(try await Post.read(from: db, sqlWhere: "id = ?", "post-1").first)
         #expect(post.content == "updated")
+        #expect(post.isDeleted == true)
     }
 
-    @Test("upsert with older updatedAt leaves content unchanged")
+    @Test("upsert with older updatedAt overwrites content")
     func upsertOlder() async throws {
         let db = try Blackbird.Database.inMemoryDatabase()
         try await Post.resolveSchema(in: db)
@@ -66,11 +69,12 @@ struct PostModelTests {
         let t1 = Date()
         let t0 = t1.addingTimeInterval(-60)
 
-        try await db.query(upsertSQL, t1, "post-1", "original", t1, 1, "note")
-        try await db.query(upsertSQL, t0, "post-1", "stale", t0, 1, "note")
+        try await db.query(upsertSQL, t1, "post-1", "original", t1, 1, "note", false)
+        try await db.query(upsertSQL, t0, "post-1", "stale", t0, 1, "note", true)
 
         let post = try #require(try await Post.read(from: db, sqlWhere: "id = ?", "post-1").first)
-        #expect(post.content == "original")
+        #expect(post.content == "stale")
+        #expect(post.isDeleted == true)
     }
 
     @Test("upsert from different userId leaves original post unchanged")
@@ -81,12 +85,13 @@ struct PostModelTests {
         let t1 = Date()
         let t2 = t1.addingTimeInterval(60)
 
-        try await db.query(upsertSQL, t1, "post-1", "user1-content", t1, 1, "note")
+        try await db.query(upsertSQL, t1, "post-1", "user1-content", t1, 1, "note", false)
         // userId 2 tries to overwrite post belonging to userId 1
-        try await db.query(upsertSQL, t1, "post-1", "user2-content", t2, 2, "note")
+        try await db.query(upsertSQL, t1, "post-1", "user2-content", t2, 2, "note", true)
 
         let post = try #require(try await Post.read(from: db, sqlWhere: "id = ?", "post-1").first)
         #expect(post.content == "user1-content")
+        #expect(post.isDeleted == false)
         #expect(post.userId == 1)
     }
 
@@ -100,7 +105,7 @@ struct PostModelTests {
         let base = Date()
         for i in 0..<5 {
             let t = base.addingTimeInterval(Double(i) * 60)
-            try await db.query(upsertSQL, t, "post-\(i)", "content \(i)", t, 1, "note")
+            try await db.query(upsertSQL, t, "post-\(i)", "content \(i)", t, 1, "note", false)
         }
 
         let posts = try await Post.read(
@@ -121,7 +126,7 @@ struct PostModelTests {
         let base = Date()
         for i in 0..<5 {
             let t = base.addingTimeInterval(Double(i) * 60)
-            try await db.query(upsertSQL, t, "post-\(i)", "c", t, 1, "note")
+            try await db.query(upsertSQL, t, "post-\(i)", "c", t, 1, "note", false)
         }
 
         let limit = 3
