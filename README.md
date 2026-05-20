@@ -347,7 +347,7 @@ Delete **all** posts belonging to the authenticated user.
 
 #### `POST /api/posts/upsert-many`
 
-Bulk upsert multiple posts in a single transaction. Accepts an array of post objects. All updates are scoped to the authenticated user.
+Bulk upsert multiple posts in a single transaction. Accepts an array of post objects. All updates are scoped to the authenticated user. `createdAt` and `updatedAt` are optional per item; omitted values use the server time at upsert.
 
 **Cookies:** `user_id=<id>`
 
@@ -365,8 +365,7 @@ Bulk upsert multiple posts in a single transaction. Accepts an array of post obj
     "id": "post-2",
     "content": "Second",
     "variant": "note",
-    "createdAt": "2026-05-12T00:00:00Z",
-    "updatedAt": "2026-05-12T00:00:00Z"
+    "isDeleted": false
   }
 ]
 ```

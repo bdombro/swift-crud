@@ -368,6 +368,28 @@ final class APIIntegrationTests {
         #expect(list.items.first(where: { $0.id == "b2" })?.isDeleted == true)
     }
 
+    @Test("POST /api/posts/upsert-many omits createdAt and updatedAt")
+    func postUpsertManyOptionalTimestamps() async throws {
+        try await seedUser(email: "bulk-ts@test.com")
+        let cookie = try await login(email: "bulk-ts@test.com")
+
+        let before = Date().addingTimeInterval(-1)
+        let payload: [[String: Any]] = [
+            ["id": "ts-1", "content": "No dates", "variant": "note", "isDeleted": false],
+        ]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let (status, _, _) = try await http.request(
+            "POST", "/api/posts/upsert-many", body: body, cookie: cookie)
+        #expect(status == 200)
+
+        let (_, listData, _) = try await http.request(
+            "GET", "/api/posts?limit=10", cookie: cookie)
+        let list = try http.decode(listData, as: ListResponse.self)
+        let post = try #require(list.items.first(where: { $0.id == "ts-1" }))
+        #expect(post.createdAt >= before)
+        #expect(post.updatedAt >= before)
+    }
+
     @Test("DELETE /api/posts removes only the authenticated user's posts")
     func deleteAllPostsScoped() async throws {
         try await seedUser(email: "del1@test.com")

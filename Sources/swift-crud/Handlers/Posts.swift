@@ -31,9 +31,9 @@ struct UpdateRequestBody: Codable {
 /// Payload for each item in a bulk upsert request.
 struct UpsertPostPayload: Codable {
     var id: String
-    var createdAt: Date
+    var createdAt: Date?
     var content: String
-    var updatedAt: Date
+    var updatedAt: Date?
     var variant: String
     var isDeleted: Bool
 }
@@ -199,9 +199,18 @@ func upsertManyPostsHandler(req: HTTPRequest) async throws -> HTTPResponse {
         }
     }
 
+    let now = Date()
     try await db.transaction { core in
         for post in payloads {
-            _ = try core.query(upsertSQL, post.createdAt, post.id, post.content, post.updatedAt, userId, post.variant, post.isDeleted)
+            _ = try core.query(
+                upsertSQL,
+                post.createdAt ?? now,
+                post.id,
+                post.content,
+                post.updatedAt ?? now,
+                userId,
+                post.variant,
+                post.isDeleted)
         }
     }
 
