@@ -69,9 +69,7 @@ func main() async throws {
 
     Logger.setup()
 
-    registerPostRoutes()
-    registerSessionRoutes()
-    registerHealthRoutes()
+    registerRoutes()
 
     let server = Server(port: env.port)
 

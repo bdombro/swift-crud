@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Centralized HTTP route registration in `Routes.swift`; handlers renamed with a `Handler` suffix.
 - Bumped `swift-tools-version` to 6.3 (requires Swift 6.3+ toolchain to build).
 - Hardened HTTP server (request body cap, safer JSON/logging, idempotent routes), session and SMTP behavior, `.env` quoting, and production listen address (`Server.start()` on `0.0.0.0`).
 - Split `Core` into smaller files (`HTTPRequest`, `HTTPResponse`, `HTTPLimits`, `Globals`, `AccessLogger`, `SMTPEmailSender`) and moved cookie crypto to `Security/AuthCookie.swift`.

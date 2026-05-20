@@ -1,4 +1,4 @@
-// Session.swift: authentication session handlers — send-code, login (code verification), logout, and get-session, all registered on the shared routes instance.
+// Session.swift: authentication session handlers — send-code, login, logout, and get-session.
 
 import Blackbird
 import CryptoKit
@@ -64,7 +64,7 @@ private func constantTimeEqual(_ lhs: Data, _ rhs: Data) -> Bool {
 // MARK: - Handlers (alphabetical)
 
 /// Return the currently authenticated user's profile.
-func getSession(req: HTTPRequest) async throws -> HTTPResponse {
+func getSessionHandler(req: HTTPRequest) async throws -> HTTPResponse {
     guard let userId = req.authUserId
     else {
         return HTTPResponse.json(.unauthorized, ["message": "unauthorized"])
@@ -75,7 +75,7 @@ func getSession(req: HTTPRequest) async throws -> HTTPResponse {
 /// Exchange a login code for an HMAC-signed `user_id` session cookie.
 ///
 /// On success, sets `Set-Cookie` via `SessionCookie` (`HttpOnly`, `SameSite=Lax`, optional `Domain` / `Secure`).
-func login(req: HTTPRequest) async throws -> HTTPResponse {
+func loginHandler(req: HTTPRequest) async throws -> HTTPResponse {
     let body = try await req.decode(as: LoginRequest.self)
 
     let user = try await User.read(from: db, sqlWhere: "email = ?", body.email).first
@@ -120,7 +120,7 @@ func login(req: HTTPRequest) async throws -> HTTPResponse {
 }
 
 /// Clear the session cookie (expired `Set-Cookie` with the same `Domain` / `Path` as login).
-func logout(req: HTTPRequest) async throws -> HTTPResponse {
+func logoutHandler(req: HTTPRequest) async throws -> HTTPResponse {
     var res = HTTPResponse.json(.ok, ["message": "success"])
     res.headers.addValue(SessionCookie.clearHeader(), for: HTTPHeader("Set-Cookie"))
     return res
@@ -128,7 +128,7 @@ func logout(req: HTTPRequest) async throws -> HTTPResponse {
 
 /// Request a one-time login code.  When SMTP is configured the code is emailed;
 /// otherwise it is printed to stdout.
-func sendCode(req: HTTPRequest) async throws -> HTTPResponse {
+func sendCodeHandler(req: HTTPRequest) async throws -> HTTPResponse {
     let body = try await req.decode(as: SendCodeRequest.self)
 
     guard body.email.contains("@"),
@@ -185,14 +185,4 @@ func sendCode(req: HTTPRequest) async throws -> HTTPResponse {
 internal func resetSendCodeRateLimitersForTesting() async {
     await sendCodeRateLimiter.resetForTesting()
     await sendCodeIPRateLimiter.resetForTesting()
-}
-
-// MARK: - Route registration
-
-/// Register all session routes on the shared `routes` instance.
-func registerSessionRoutes() {
-    routes.get("/api/session", handler: getSession)
-    routes.post("/api/session/send-code", handler: sendCode)
-    routes.post("/api/session/login", handler: login)
-    routes.post("/api/session/logout", handler: logout)
 }

@@ -41,8 +41,7 @@ final class APIIntegrationTests {
     // Register routes into the global `routes` instance exactly once per test binary run.
     // Route registration is idempotent (same path replaces the previous handler).
     private static let _routesRegistered: Void = {
-        registerPostRoutes()
-        registerSessionRoutes()
+        registerRoutes()
     }()
 
     private let testDb: Blackbird.Database

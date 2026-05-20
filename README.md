@@ -407,6 +407,7 @@ This app is intentionally frugal with dependencies and only adds them when it's 
 ```
 Sources/swift-crud/
 ├── main.swift              # App entrypoint: DB setup, server launch
+├── Routes.swift            # Central route registration
 ├── Core/
 │   ├── Server.swift        # NIO HTTP server lifecycle
 │   ├── AccessLogger.swift  # One-line access logs (stdout / LOG_FILE)
