@@ -56,6 +56,32 @@ struct EnvironmentTests {
         #expect(Environment(authSecret: "my-secret").authSecret == "my-secret")
     }
 
+    @Test("default cookieDomain is nil")
+    func defaultCookieDomain() {
+        #expect(Environment().cookieDomain == nil)
+    }
+
+    @Test("default cookieSecure is true")
+    func defaultCookieSecure() {
+        #expect(Environment().cookieSecure == true)
+    }
+
+    @Test("default corsAllowedOrigins is empty")
+    func defaultCorsOrigins() {
+        #expect(Environment().corsAllowedOrigins.isEmpty)
+    }
+
+    @Test("custom cookie and CORS settings round-trip")
+    func customCookieAndCors() {
+        let env = Environment(
+            cookieDomain: "btec.cc",
+            cookieSecure: false,
+            corsAllowedOrigins: ["https://app.btec.cc", "https://staging.btec.cc"])
+        #expect(env.cookieDomain == "btec.cc")
+        #expect(env.cookieSecure == false)
+        #expect(env.corsAllowedOrigins == ["https://app.btec.cc", "https://staging.btec.cc"])
+    }
+
     @Test("custom smtpHost round-trips")
     func customSmtpHost() {
         #expect(Environment(smtpHost: "smtp.example.com").smtpHost == "smtp.example.com")

@@ -8,10 +8,17 @@ import NIOTransportServices
 
 private typealias HTTPConnection = NIOAsyncChannel<HTTPServerRequestPart, HTTPServerResponsePart>
 
+/// Tracks in-flight HTTP connections for graceful shutdown draining.
 private actor ConnectionCounter {
     private var count = 0
+
+    /// Records a new active connection.
     func increment() { count += 1 }
+
+    /// Records that a connection finished handling.
     func decrement() { count -= 1 }
+
+    /// Number of connections still processing a request.
     var current: Int { count }
 }
 
@@ -26,11 +33,13 @@ final class Server: @unchecked Sendable {
     /// The port the HTTP server actually bound to (may differ from `port` when port 0 is used).
     private(set) var boundPort: UInt16?
 
+    /// Creates a server that will listen on `port` once `start()` or `startAndListen()` is called.
     init(port: UInt16) {
         self.port = port
         self.group = NIOTSEventLoopGroup()
     }
 
+    /// Shuts down the event loop group if the server was not stopped explicitly.
     deinit {
         if !groupIsShutdown {
             try? group.syncShutdownGracefully()
@@ -71,6 +80,7 @@ final class Server: @unchecked Sendable {
         }
     }
 
+    /// Accepts one TCP connection, runs the HTTP handler, and updates the connection counter for shutdown.
     private func handleConnection(_ connection: HTTPConnection) async {
         await connectionCounter.increment()
         defer { Task { await connectionCounter.decrement() } }
@@ -144,6 +154,7 @@ final class Server: @unchecked Sendable {
 
     // MARK: - Connection handler
 
+    /// Reads request parts from a connection, enforces the body size limit, and dispatches each request.
     private func handleHTTPConnection(_ connection: HTTPConnection) async throws {
         let remoteDesc = connection.channel.remoteAddress.map { String(describing: $0) }
         try await connection.executeThenClose { inbound, outbound in
@@ -189,6 +200,7 @@ final class Server: @unchecked Sendable {
 
     // MARK: - Request handling
 
+    /// Routes one HTTP request: CORS preflight, 404, handler dispatch, CORS on the response, access log, write.
     private func handleRequest(
         head: HTTPRequestHead,
         body: Data,
@@ -206,28 +218,36 @@ final class Server: @unchecked Sendable {
         request.requestId = Data((0..<8).map { _ in UInt8.random(in: .min ... .max) }).base64EncodedString().trimmingCharacters(in: ["="])
         let start = Date()
 
+        if let preflight = CORS.preflightResponse(for: request) {
+            Logger.access(
+                start: start, method: head.method.rawValue, path: path, userId: "ANONYMOUS",
+                statusCode: Int(preflight.statusCode.code), requestId: request.requestId)
+            await writeResponse(preflight, head: head, outbound: outbound)
+            return
+        }
+
         guard let (handler, params) = routes.route(for: head.method, path: path) else {
             Logger.access(
                 start: start, method: head.method.rawValue, path: path, userId: "ANONYMOUS",
                 statusCode: 404, requestId: request.requestId)
-            var notFoundHeaders = NIOHTTP1.HTTPHeaders()
-            notFoundHeaders.add(name: "Content-Type", value: "text/plain")
-            try? await outbound.write(contentsOf: [
-                .head(.init(version: head.version, status: .notFound, headers: notFoundHeaders)),
-                .body(.byteBuffer(ByteBuffer(string: "Not Found"))),
-                .end(nil),
-            ])
+            var notFound = HTTPResponse(
+                statusCode: .notFound,
+                headers: [HTTPHeader("Content-Type"): "text/plain"],
+                body: Data("Not Found".utf8))
+            CORS.apply(to: &notFound, request: request)
+            await writeResponse(notFound, head: head, outbound: outbound)
             return
         }
 
         request.routeParameters = params
 
-        let response: HTTPResponse
+        var response: HTTPResponse
         do {
             response = try await handler(request)
         } catch {
             response = Self.internalErrorResponse
         }
+        CORS.apply(to: &response, request: request)
 
         let userIdStr = request.wasAuthChecked
             ? request.authUserId.map(String.init) ?? "ANONYMOUS"
@@ -239,6 +259,7 @@ final class Server: @unchecked Sendable {
         await writeResponse(response, head: head, outbound: outbound)
     }
 
+    /// Serializes an `HTTPResponse` (including handler and CORS headers) onto the NIO outbound channel.
     private func writeResponse(
         _ response: HTTPResponse,
         head: HTTPRequestHead,

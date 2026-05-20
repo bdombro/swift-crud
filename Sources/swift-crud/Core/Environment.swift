@@ -70,6 +70,15 @@ struct Environment {
     /// Secret key for HMAC-signing the `user_id` cookie.
     let authSecret: String
 
+    /// Parent domain for the session cookie (`COOKIE_DOMAIN`). Omit for host-only cookies (local dev).
+    let cookieDomain: String?
+
+    /// When false, omit `Secure` on session cookies (`COOKIE_SECURE=false`) for local HTTP testing.
+    let cookieSecure: Bool
+
+    /// Browser origins allowed for credentialed CORS (`CORS_ALLOWED_ORIGINS`, comma-separated).
+    let corsAllowedOrigins: [String]
+
     // MARK: Email / SMTP
     /// SMTP server hostname.  If nil, email sending falls back to print-to-stdout.
     let smtpHost: String?
@@ -94,6 +103,7 @@ struct Environment {
 
     // MARK: Init from real environment
 
+    /// Loads configuration from process environment, then `.env` (process vars win on conflict).
     init() {
         // Process environment takes priority over .env file
         let processEnv = ProcessInfo.processInfo.environment
@@ -109,6 +119,16 @@ struct Environment {
 
         authSecret = mergedEnv["AUTH_SECRET"] ?? "change-me"
 
+        cookieDomain = mergedEnv["COOKIE_DOMAIN"].flatMap { $0.isEmpty ? nil : $0 }
+        cookieSecure = mergedEnv["COOKIE_SECURE"].map { $0 != "false" && $0 != "0" } ?? true
+        corsAllowedOrigins =
+            mergedEnv["CORS_ALLOWED_ORIGINS"]
+            .map {
+                $0.split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+            } ?? []
+
         smtpHost = mergedEnv["SMTP_HOST"].flatMap { $0.isEmpty ? nil : $0 }
         smtpPort = mergedEnv["SMTP_PORT"].flatMap(UInt16.init) ?? 587
         smtpUsername = mergedEnv["SMTP_USERNAME"].flatMap { $0.isEmpty ? nil : $0 }
@@ -120,11 +140,15 @@ struct Environment {
 
     // MARK: Init for testing (allows overriding specific values)
 
+    /// Builds config from explicit values; used by unit tests instead of `ProcessInfo` / `.env`.
     init(
         port: UInt16 = 8000,
         dbPath: String = "db.sqlite",
         dbDebug: Bool = false,
         authSecret: String = "change-me",
+        cookieDomain: String? = nil,
+        cookieSecure: Bool = true,
+        corsAllowedOrigins: [String] = [],
         smtpHost: String? = nil,
         smtpPort: UInt16 = 587,
         smtpUsername: String? = nil,
@@ -137,6 +161,9 @@ struct Environment {
         self.dbPath = dbPath
         self.dbDebug = dbDebug
         self.authSecret = authSecret
+        self.cookieDomain = cookieDomain
+        self.cookieSecure = cookieSecure
+        self.corsAllowedOrigins = corsAllowedOrigins
         self.smtpHost = smtpHost
         self.smtpPort = smtpPort
         self.smtpUsername = smtpUsername

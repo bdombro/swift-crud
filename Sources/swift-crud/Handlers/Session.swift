@@ -22,6 +22,7 @@ struct LoginRequest: Codable {
 private actor SendCodeRateLimiter {
     private var timestamps: [String: [Date]] = [:]
 
+    /// Returns `true` if `key` has already hit `maxRequests` within `windowSeconds`; otherwise records this attempt.
     func checkAndRecord(key: String, maxRequests: Int, windowSeconds: TimeInterval) -> Bool {
         let now = Date()
         var recent = timestamps[key, default: []].filter { now.timeIntervalSince($0) < windowSeconds }
@@ -50,6 +51,7 @@ private let sendCodeIPRateLimiter = SendCodeRateLimiter()
 
 // MARK: - Constant-time helpers
 
+/// Constant-time comparison for login code hashes (mitigates timing side channels).
 private func constantTimeEqual(_ lhs: Data, _ rhs: Data) -> Bool {
     guard lhs.count == rhs.count else { return false }
     var result: UInt8 = 0
@@ -70,7 +72,9 @@ func getSession(req: HTTPRequest) async throws -> HTTPResponse {
     return HTTPResponse.json(.ok, userId)
 }
 
-/// Exchange a login code for an HMAC-signed `user_id` cookie.
+/// Exchange a login code for an HMAC-signed `user_id` session cookie.
+///
+/// On success, sets `Set-Cookie` via `SessionCookie` (`HttpOnly`, `SameSite=Lax`, optional `Domain` / `Secure`).
 func login(req: HTTPRequest) async throws -> HTTPResponse {
     let body = try await req.decode(as: LoginRequest.self)
 
@@ -110,17 +114,15 @@ func login(req: HTTPRequest) async throws -> HTTPResponse {
 
     var res = HTTPResponse.json(.ok, ["message": "success"])
     let farFuture = "Wed, 01 Jan 2099 00:00:00 GMT"
-    let cookieValue =
-        "\(AuthCookie.setCookie(userId: user.id, secret: activeAuthSecret)); Path=/; Expires=\(farFuture); HttpOnly; Secure; SameSite=Strict"
-    res.headers.addValue("user_id=\(cookieValue)", for: HTTPHeader("Set-Cookie"))
+    let signed = AuthCookie.setCookie(userId: user.id, secret: activeAuthSecret)
+    res.headers.addValue(SessionCookie.setHeader(signedValue: signed, expires: farFuture), for: HTTPHeader("Set-Cookie"))
     return res
 }
 
-/// Clear the session cookie.
+/// Clear the session cookie (expired `Set-Cookie` with the same `Domain` / `Path` as login).
 func logout(req: HTTPRequest) async throws -> HTTPResponse {
     var res = HTTPResponse.json(.ok, ["message": "success"])
-    res.headers.addValue(
-        "user_id=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Strict", for: HTTPHeader("Set-Cookie"))
+    res.headers.addValue(SessionCookie.clearHeader(), for: HTTPHeader("Set-Cookie"))
     return res
 }
 

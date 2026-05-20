@@ -3,7 +3,7 @@
 import CryptoKit
 import Foundation
 
-// Constant-time comparison of two Data values to prevent timing side-channel attacks.
+/// Compares two byte buffers in constant time to avoid leaking HMAC validity via timing.
 private func constantTimeEqual(_ lhs: Data, _ rhs: Data) -> Bool {
     guard lhs.count == rhs.count else { return false }
     var result: UInt8 = 0
@@ -15,7 +15,12 @@ private func constantTimeEqual(_ lhs: Data, _ rhs: Data) -> Bool {
 
 /// Namespace for HMAC-signed `user_id` cookie helpers.
 enum AuthCookie {
-    /// Sign a user ID for use as the cookie value.
+    /// Produces the cookie payload `userId.base64(HMAC-SHA256)` for the given secret.
+    ///
+    /// - Parameters:
+    ///   - userId: Authenticated user primary key.
+    ///   - secret: `AUTH_SECRET` used as the HMAC key.
+    /// - Returns: Value to store in the `user_id` cookie (before `SessionCookie` attributes).
     static func sign(userId: Int, with secret: String) -> String {
         let data = Data("\(userId)".utf8)
         let key = SymmetricKey(data: Data(secret.utf8))
@@ -44,7 +49,7 @@ enum AuthCookie {
         return userId
     }
 
-    /// Set the `user_id` cookie on a response (signed value).
+    /// Returns the signed cookie value for `user_id` (alias for `sign(userId:with:)`).
     static func setCookie(userId: Int, secret: String) -> String {
         sign(userId: userId, with: secret)
     }

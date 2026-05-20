@@ -58,6 +58,9 @@ The server is configured via environment variables:
 | `DB_PATH` | `db.sqlite` | SQLite database file path |
 | `DB_DEBUG` | — | Set to `true` or `1` to log every SQL query |
 | `AUTH_SECRET` | — | HMAC signing key for the `user_id` cookie. Set in production to prevent cookie forgery |
+| `COOKIE_DOMAIN` | — | Parent domain for the session cookie (e.g. `btec.cc`) so `api.*` and `app.*` subdomains share auth. Omit for host-only cookies (local dev) |
+| `COOKIE_SECURE` | `true` | Set to `false` or `0` to omit `Secure` on session cookies (local HTTP testing only) |
+| `CORS_ALLOWED_ORIGINS` | — | Comma-separated browser origins allowed for credentialed CORS (e.g. `https://app.btec.cc`) |
 | `SMTP_HOST` | — | SMTP server hostname (omit to fall back to print-to-stdout) |
 | `SMTP_PORT` | `587` | SMTP server port |
 | `SMTP_USERNAME` | — | SMTP username |
@@ -124,7 +127,7 @@ Exchange a code for a session cookie.
 | `401` | Invalid email, code, or code expired (>10 min / max 3 attempts) |
 
 **Notes:**
-- On success the server sets cookie `user_id=<id>; Path=/`.
+- On success the server sets `user_id=<id>.<sig>` with `Path=/`, `HttpOnly`, and (by default) `Secure` and `SameSite=Lax`. Set `COOKIE_DOMAIN` for cross-subdomain sharing; set `CORS_ALLOWED_ORIGINS` and use credentialed requests from the frontend when the API and app are on different origins.
 - Codes expire after 10 minutes.
 - After 3 failed attempts the code is invalidated.
 - Successful login clears the code hash and attempt data from the user record.
@@ -411,7 +414,9 @@ Sources/swift-crud/
 │   ├── EmailSender.swift   # Email protocol + print fallback + factory
 │   ├── SMTPEmailSender.swift # NIO SMTP client (STARTTLS / TLS)
 │   ├── Environment.swift   # Env + .env loading
-│   ├── Globals.swift       # Module singletons (db, auth secret, email, log paths)
+│   ├── Globals.swift       # Module singletons (db, auth secret, cookie/CORS, email)
+│   ├── SessionCookie.swift # Set-Cookie assembly for session auth
+│   ├── CORS.swift          # Credentialed CORS for allowed frontend origins
 │   ├── HTTPLimits.swift    # Request body / content size caps
 │   ├── HTTPRequest.swift   # Request type + query parsing + handler typealias
 │   └── HTTPResponse.swift  # Response type + JSON helper

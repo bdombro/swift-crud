@@ -20,12 +20,14 @@ struct HTTPClient {
         _ method: String,
         _ path: String,
         body: Data? = nil,
-        cookie: String? = nil
+        cookie: String? = nil,
+        origin: String? = nil
     ) async throws -> (statusCode: Int, data: Data, headers: [String: String]) {
         let url = URL(string: path, relativeTo: baseURL)!
         var req = URLRequest(url: url, timeoutInterval: 5)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let origin { req.setValue(origin, forHTTPHeaderField: "Origin") }
         if let cookie { req.setValue("user_id=\(cookie)", forHTTPHeaderField: "Cookie") }
         req.httpBody = body
 

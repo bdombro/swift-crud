@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split `Core` into smaller files (`HTTPRequest`, `HTTPResponse`, `HTTPLimits`, `Globals`, `AccessLogger`, `SMTPEmailSender`) and moved cookie crypto to `Security/AuthCookie.swift`.
 
 ### Added
+- `COOKIE_DOMAIN`, `COOKIE_SECURE`, and `CORS_ALLOWED_ORIGINS` for cross-subdomain session cookies and credentialed browser CORS.
 - Swift Testing suite: unit tests for `AuthCookie`, `HTTPRequest` parsing, and `Environment`; model tests for `User` and `Post` Blackbird behavior; end-to-end integration tests covering all API endpoints via an in-process server.
 - More integration and unit tests for send-code IP throttling, invalid email shapes, `stripDotEnvQuotes`, and `limit=0` on list posts.
 - Added `Post.isDeleted` to the model and post API payloads/responses.

@@ -36,8 +36,8 @@ func waitForShutdownSignal() async {
 }
 
 /// Application bootstrap: load environment and validate secrets, open SQLite and ensure schemas,
-/// configure globals (email, DB, auth), register routes, start the HTTP server, then block until
-/// SIGTERM/SIGINT and shut down the server and optional SMTP resources gracefully.
+/// configure globals (email, DB, auth, session cookie, CORS), register routes, start the HTTP server,
+/// then block until SIGTERM/SIGINT and shut down the server and optional SMTP resources gracefully.
 func main() async throws {
     let env = Environment()
 
@@ -61,6 +61,9 @@ func main() async throws {
         smtpEventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
     }
     activeAuthSecret = env.authSecret
+    cookieDomain = env.cookieDomain
+    cookieSecure = env.cookieSecure
+    corsAllowedOrigins = env.corsAllowedOrigins
     emailSender = sender
     db = database
 

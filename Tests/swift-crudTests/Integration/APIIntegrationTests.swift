@@ -66,6 +66,9 @@ final class APIIntegrationTests {
         db = testDb
         emailSender = mockEmail
         activeAuthSecret = "test-secret"
+        cookieDomain = nil
+        cookieSecure = true
+        corsAllowedOrigins = []
 
         server = Server(port: 0)
         try await server.startAndListen()
@@ -202,6 +205,41 @@ final class APIIntegrationTests {
         let badSig = Data(repeating: 0xAB, count: 32).base64EncodedString()
         let (status, _, _) = try await http.request("GET", "/api/session/", cookie: "1.\(badSig)")
         #expect(status == 401)
+    }
+
+    @Test("login Set-Cookie includes Domain when cookieDomain is set")
+    func loginCookieDomain() async throws {
+        cookieDomain = "btec.cc"
+        defer { cookieDomain = nil }
+        try await seedUser(email: "domain@test.com")
+        let body = try http.jsonBody(["email": "domain@test.com", "code": "12345678"])
+        let (_, _, headers) = try await http.request("POST", "/api/session/login", body: body)
+        let setCookie = headers.first { $0.key.lowercased() == "set-cookie" }?.value ?? ""
+        #expect(setCookie.contains("Domain=btec.cc"))
+        #expect(setCookie.contains("SameSite=Lax"))
+    }
+
+    @Test("OPTIONS preflight returns CORS headers for allowed origin")
+    func corsPreflight() async throws {
+        let appOrigin = "http://127.0.0.1:3000"
+        corsAllowedOrigins = [appOrigin]
+        defer { corsAllowedOrigins = [] }
+        let (status, _, headers) = try await http.request("OPTIONS", "/api/posts", origin: appOrigin)
+        #expect(status == 204)
+        #expect(headers["Access-Control-Allow-Origin"] == appOrigin)
+        #expect(headers["Access-Control-Allow-Credentials"] == "true")
+    }
+
+    @Test("GET with allowed Origin receives CORS headers on API responses")
+    func corsOnGet() async throws {
+        let appOrigin = "https://app.example.com"
+        corsAllowedOrigins = [appOrigin]
+        defer { corsAllowedOrigins = [] }
+        let (status, _, headers) = try await http.request(
+            "GET", "/api/session/", origin: appOrigin)
+        #expect(status == 401)
+        #expect(headers["Access-Control-Allow-Origin"] == appOrigin)
+        #expect(headers["Access-Control-Allow-Credentials"] == "true")
     }
 
     @Test("POST /api/session/logout sets an expired cookie")
