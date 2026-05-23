@@ -56,14 +56,14 @@ private let upsertSQL = """
 /// Create a single post.  Duplicate `id` performs an upsert.
 func createPostHandler(req: HTTPRequest) async throws -> HTTPResponse {
     guard let userId = req.authUserId else {
-        return HTTPResponse.json(.unauthorized, ["message": "unauthorized"])
+        return HTTPResponse.apiError(.unauthorized, .unauthorized)
     }
     let body = try await req.decode(as: CreateRequestBody.self)
     guard body.content.count <= HTTPLimits.maxPostContentBytes else {
-        return HTTPResponse.json(.badRequest, ["message": "content too long"])
+        return HTTPResponse.apiError(.badRequest, .postContentTooLong)
     }
     guard body.variant.count <= HTTPLimits.maxPostContentBytes else {
-        return HTTPResponse.json(.badRequest, ["message": "variant too long"])
+        return HTTPResponse.apiError(.badRequest, .postVariantTooLong)
     }
     let now = Date()
 
@@ -82,7 +82,7 @@ func createPostHandler(req: HTTPRequest) async throws -> HTTPResponse {
 /// Delete all posts belonging to the authenticated user.
 func deleteAllPostsHandler(req: HTTPRequest) async throws -> HTTPResponse {
     guard let userId = req.authUserId else {
-        return HTTPResponse.json(.unauthorized, ["message": "unauthorized"])
+        return HTTPResponse.apiError(.unauthorized, .unauthorized)
     }
     _ = try await db.query("DELETE FROM posts WHERE userId = ?", userId)
     return HTTPResponse.json(.ok, ["message": "success"])
@@ -91,10 +91,10 @@ func deleteAllPostsHandler(req: HTTPRequest) async throws -> HTTPResponse {
 /// Delete a single post by id, scoped to the authenticated user.
 func deletePostHandler(req: HTTPRequest) async throws -> HTTPResponse {
     guard let userId = req.authUserId else {
-        return HTTPResponse.json(.unauthorized, ["message": "unauthorized"])
+        return HTTPResponse.apiError(.unauthorized, .unauthorized)
     }
     guard let raw = req.routeParameters["id"], isValidID(raw) else {
-        return HTTPResponse.json(.badRequest, ["message": "invalid post id"])
+        return HTTPResponse.apiError(.badRequest, .invalidPostId)
     }
 
     _ = try await db.query("DELETE FROM posts WHERE id = ? AND userId = ?", raw, userId)
@@ -104,14 +104,14 @@ func deletePostHandler(req: HTTPRequest) async throws -> HTTPResponse {
 /// Fetch a single post by id, scoped to the authenticated user.
 func getPostHandler(req: HTTPRequest) async throws -> HTTPResponse {
     guard let userId = req.authUserId else {
-        return HTTPResponse.json(.unauthorized, ["message": "unauthorized"])
+        return HTTPResponse.apiError(.unauthorized, .unauthorized)
     }
     guard let raw = req.routeParameters["id"], isValidID(raw) else {
-        return HTTPResponse.json(.badRequest, ["message": "invalid post id"])
+        return HTTPResponse.apiError(.badRequest, .invalidPostId)
     }
 
     guard let post = try await Post.read(from: db, sqlWhere: "id = ? AND userId = ?", raw, userId).first else {
-        return HTTPResponse.json(.notFound, ["error": "Post not found"])
+        return HTTPResponse.apiError(.notFound, .postNotFound)
     }
     return HTTPResponse.json(.ok, post)
 }
@@ -119,7 +119,7 @@ func getPostHandler(req: HTTPRequest) async throws -> HTTPResponse {
 /// List the authenticated user's posts, newest first, with optional cursor pagination.
 func listPostsHandler(req: HTTPRequest) async throws -> HTTPResponse {
     guard let userId = req.authUserId else {
-        return HTTPResponse.json(.unauthorized, ["message": "unauthorized"])
+        return HTTPResponse.apiError(.unauthorized, .unauthorized)
     }
 
     let query = req.queryParameters
@@ -128,10 +128,10 @@ func listPostsHandler(req: HTTPRequest) async throws -> HTTPResponse {
 
     var afterDate: Date? = nil
     if let afterStr = query["after"], !afterStr.isEmpty {
-        guard let date = ISO8601DateFormatter().date(from: afterStr) else {
-            return HTTPResponse.json(.badRequest, ["message": "invalid after cursor"])
+        guard let ms = Double(afterStr), ms >= 0 else {
+            return HTTPResponse.apiError(.badRequest, .invalidAfterCursor)
         }
-        afterDate = date
+        afterDate = Date(timeIntervalSince1970: ms / 1000.0)
     }
 
     var posts: [Post]
@@ -150,20 +150,20 @@ func listPostsHandler(req: HTTPRequest) async throws -> HTTPResponse {
 /// Put a post.  Acts as a complete replacement or a fallback to create.
 func putPostHandler(req: HTTPRequest) async throws -> HTTPResponse {
     guard let userId = req.authUserId else {
-        return HTTPResponse.json(.unauthorized, ["message": "unauthorized"])
+        return HTTPResponse.apiError(.unauthorized, .unauthorized)
     }
     guard let raw = req.routeParameters["id"] else {
-        return HTTPResponse.json(.badRequest, ["message": "missing id parameter"])
+        return HTTPResponse.apiError(.badRequest, .missingPostIdParameter)
     }
     guard isValidID(raw) else {
-        return HTTPResponse.json(.badRequest, ["message": "invalid post id"])
+        return HTTPResponse.apiError(.badRequest, .invalidPostId)
     }
     let body = try await req.decode(as: CreateRequestBody.self)
     guard body.content.count <= HTTPLimits.maxPostContentBytes else {
-        return HTTPResponse.json(.badRequest, ["message": "content too long"])
+        return HTTPResponse.apiError(.badRequest, .postContentTooLong)
     }
     guard body.variant.count <= HTTPLimits.maxPostContentBytes else {
-        return HTTPResponse.json(.badRequest, ["message": "variant too long"])
+        return HTTPResponse.apiError(.badRequest, .postVariantTooLong)
     }
     let now = Date()
     let updateTime = body.updatedAt ?? now
@@ -175,27 +175,27 @@ func putPostHandler(req: HTTPRequest) async throws -> HTTPResponse {
     if !rows.isEmpty {
         return HTTPResponse.json(.ok, ["message": "success"])
     } else {
-        return HTTPResponse.json(.notFound, ["error": "Post not found or unauthorized"])
+        return HTTPResponse.apiError(.notFound, .postNotFoundOrUnauthorized)
     }
 }
 
 /// Bulk upsert an array of posts in a single transaction.
 func upsertManyPostsHandler(req: HTTPRequest) async throws -> HTTPResponse {
     guard let userId = req.authUserId else {
-        return HTTPResponse.json(.unauthorized, ["message": "unauthorized"])
+        return HTTPResponse.apiError(.unauthorized, .unauthorized)
     }
 
     let payloads = try await req.decode(as: [UpsertPostPayload].self)
     guard !payloads.isEmpty else { return HTTPResponse.json(.ok, ["message": "success"]) }
     for post in payloads {
         guard post.content.count <= HTTPLimits.maxPostContentBytes else {
-            return HTTPResponse.json(.badRequest, ["message": "content too long"])
+            return HTTPResponse.apiError(.badRequest, .postContentTooLong)
         }
         guard post.variant.count <= HTTPLimits.maxPostContentBytes else {
-            return HTTPResponse.json(.badRequest, ["message": "variant too long"])
+            return HTTPResponse.apiError(.badRequest, .postVariantTooLong)
         }
         guard isValidID(post.id) else {
-            return HTTPResponse.json(.badRequest, ["message": "invalid id format"])
+            return HTTPResponse.apiError(.badRequest, .invalidBulkPostId)
         }
     }
 

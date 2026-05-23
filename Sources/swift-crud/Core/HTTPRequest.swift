@@ -76,7 +76,7 @@ struct HTTPRequest: Sendable {
 
     func decode<T: Decodable>(as type: T.Type) async throws -> T {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .millisecondsSince1970
         return try decoder.decode(type, from: body)
     }
 }

@@ -23,9 +23,9 @@ keygen-cookie-secret:
     KEY="$(openssl rand -base64 32)"
     sed -i '' "s|^AUTH_SECRET=.*|AUTH_SECRET=$KEY|" .env || echo "AUTH_SECRET=$KEY" >> .env
 
-# Kill any existing server running on port 8000
+# Kill any existing server running on port 8080
 kill:
-    lsof -ti :8000 | xargs kill -9 || true
+    lsof -ti :8080 | xargs kill -9 || true
 
 alias start := run
 # Run the built binary application
@@ -68,13 +68,13 @@ benchmark-init:
 # 70-85k req/s in production mode on M4 Pro macbook
 benchmark-healthz:
     hey -n 10000 -c 50 -m GET \
-      http://127.0.0.1:8000/healthz
+      http://127.0.0.1:8080/healthz
 
 # 70-85k req/s in production mode on M4 Pro macbook
 benchmark-cookie USER_ID_COOKIE="1.e3ZM4zjWAZGDR/Y2wLiJU+BuFNS3LNWgNT6tu9Nk46A=":
     hey -n 10000 -c 50 -m GET \
       -H "Cookie: user_id={{ USER_ID_COOKIE }}" \
-      http://127.0.0.1:8000/api/session
+      http://127.0.0.1:8080/api/session
 
 # performance benchmark the app with a single DB read
 
@@ -82,7 +82,7 @@ benchmark-cookie USER_ID_COOKIE="1.e3ZM4zjWAZGDR/Y2wLiJU+BuFNS3LNWgNT6tu9Nk46A="
 benchmark-r USER_ID_COOKIE="1.e3ZM4zjWAZGDR/Y2wLiJU+BuFNS3LNWgNT6tu9Nk46A=":
     hey -n 100000 -c 50 -m GET \
       -H "Cookie: user_id={{ USER_ID_COOKIE }}" \
-      http://127.0.0.1:8000/api/posts?limit=1
+      http://127.0.0.1:8080/api/posts?limit=1
 
 # performance benchmark the app with a single DB write
 
@@ -92,7 +92,7 @@ benchmark-w USER_ID_COOKIE="1.e3ZM4zjWAZGDR/Y2wLiJU+BuFNS3LNWgNT6tu9Nk46A=":
       -H "Cookie: user_id={{ USER_ID_COOKIE }}" \
       -H "Content-Type: application/json" \
       -d '{"content":"Benchmarking POST","variant":"note"}' \
-      http://127.0.0.1:8000/api/posts
+      http://127.0.0.1:8080/api/posts
 
 # performance benchmark the app with 1/10 writes per read
 # ~3.16s, 31600r/s total, Write 3200r/s, Read 29200r/s in
@@ -106,12 +106,12 @@ benchmark-rw USER_ID_COOKIE="1.e3ZM4zjWAZGDR/Y2wLiJU+BuFNS3LNWgNT6tu9Nk46A=":
     # Run GET and POST benchmarks simultaneously
     hey -n 90000 -c 50 -m GET \
       -H "Cookie: user_id={{ USER_ID_COOKIE }}" \
-      http://127.0.0.1:8000/api/posts?limit=1 &
+      http://127.0.0.1:8080/api/posts?limit=1 &
     hey -n 10000 -c 50 -m POST \
       -H "Cookie: user_id={{ USER_ID_COOKIE }}" \
       -H "Content-Type: application/json" \
       -d '{"content":"Benchmarking POST","variant":"note"}' \
-      http://127.0.0.1:8000/api/posts &
+      http://127.0.0.1:8080/api/posts &
     wait
 
     # Calculate and print the elapsed time

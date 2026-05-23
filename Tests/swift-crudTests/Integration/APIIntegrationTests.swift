@@ -24,8 +24,13 @@ private struct CreatePostRequest: Encodable {
 private struct UpdatePostRequest: Encodable {
     let content: String
     let variant: String
-    let updatedAt: String
+    let updatedAt: Int64
     let isDeleted: Bool
+}
+
+/// Unix epoch milliseconds for API JSON dates.
+private func epochMs(_ date: Date = Date()) -> Int64 {
+    Int64(date.timeIntervalSince1970 * 1000)
 }
 
 private func sha256(_ string: String) -> String {
@@ -107,8 +112,11 @@ final class APIIntegrationTests {
 
     @Test("unauthenticated GET /api/posts returns 401")
     func unauthorizedAccess() async throws {
-        let (status, _, _) = try await http.request("GET", "/api/posts")
+        let (status, data, _) = try await http.request("GET", "/api/posts")
         #expect(status == 401)
+        let err = try JSONDecoder().decode(APIErrorBody.self, from: data)
+        #expect(err.code == 101)
+        #expect(err.message == "unauthorized")
     }
 
     @Test("POST /api/session/send-code creates a new user and sends a code")
@@ -122,6 +130,10 @@ final class APIIntegrationTests {
 
         let sentCount = await mockEmail.sent.count
         #expect(sentCount == 1)
+
+        let code = await mockEmail.lastCode(for: "new@test.com")
+        #expect(code?.count == 8)
+        #expect(code?.allSatisfy(\.isNumber) == true)
     }
 
     @Test("POST /api/session/send-code twice within 2 minutes returns 429")
@@ -158,6 +170,15 @@ final class APIIntegrationTests {
         let overflow = try http.jsonBody(["email": "iptest_overflow@test.com"])
         let (lastStatus, _, _) = try await http.request("POST", "/api/session/send-code", body: overflow)
         #expect(lastStatus == 429)
+    }
+
+    @Test("POST /api/session/login left-pads short numeric codes to 8 digits")
+    func loginPadsShortCode() async throws {
+        try await seedUser(email: "pad@test.com", code: "01234567")
+        let body = try http.jsonBody(["email": "pad@test.com", "code": "1234567"])
+        let (status, _, headers) = try await http.request("POST", "/api/session/login", body: body)
+        #expect(status == 200)
+        #expect(http.extractCookie(from: headers, name: "user_id") != nil)
     }
 
     @Test("POST /api/session/login returns HMAC-signed cookie")
@@ -285,9 +306,8 @@ final class APIIntegrationTests {
         #expect(post.isDeleted == false)
 
         // Update (updatedAt must be newer than current)
-        let newTime = ISO8601DateFormatter().string(from: Date().addingTimeInterval(60))
         let updateBody = try http.jsonBody(UpdatePostRequest(
-            content: "Updated", variant: "note", updatedAt: newTime, isDeleted: true))
+            content: "Updated", variant: "note", updatedAt: epochMs(Date().addingTimeInterval(60)), isDeleted: true))
         let (updateStatus, _, _) = try await http.request(
             "PUT", "/api/posts/e2e-1", body: updateBody, cookie: cookie)
         #expect(updateStatus == 200)
@@ -315,17 +335,15 @@ final class APIIntegrationTests {
         let cookie = try await login(email: "stale@test.com")
 
         let now = Date()
-        let nowStr = ISO8601DateFormatter().string(from: now)
-        let createBody = try http.jsonBody([
+        let createBody = try JSONSerialization.data(withJSONObject: [
             "id": "stale-1", "content": "Original", "variant": "note",
-            "updatedAt": nowStr,
+            "updatedAt": epochMs(now),
         ])
         _ = try await http.request("POST", "/api/posts", body: createBody, cookie: cookie)
 
-        // Stale updatedAt (before the current one)
-        let olderStr = ISO8601DateFormatter().string(from: now.addingTimeInterval(-60))
+        // Older updatedAt still overwrites (PUT is last-write for upsert path in this test)
         let olderBody = try http.jsonBody(UpdatePostRequest(
-            content: "Overwritten", variant: "note", updatedAt: olderStr, isDeleted: false))
+            content: "Overwritten", variant: "note", updatedAt: epochMs(now.addingTimeInterval(-60)), isDeleted: false))
         let (status, _, _) = try await http.request(
             "PUT", "/api/posts/stale-1", body: olderBody, cookie: cookie)
         #expect(status == 200)
@@ -342,19 +360,19 @@ final class APIIntegrationTests {
         try await seedUser(email: "bulk@test.com")
         let cookie = try await login(email: "bulk@test.com")
 
-        let now = ISO8601DateFormatter().string(from: Date())
+        let nowMs = epochMs()
         let payload: [[String: Any]] = [
             [
-                "id": "b1", "content": "First", "variant": "note", "createdAt": now,
-                "updatedAt": now, "isDeleted": false,
+                "id": "b1", "content": "First", "variant": "note", "createdAt": nowMs,
+                "updatedAt": nowMs, "isDeleted": false,
             ],
             [
-                "id": "b2", "content": "Second", "variant": "note", "createdAt": now,
-                "updatedAt": now, "isDeleted": true,
+                "id": "b2", "content": "Second", "variant": "note", "createdAt": nowMs,
+                "updatedAt": nowMs, "isDeleted": true,
             ],
             [
-                "id": "b3", "content": "Third", "variant": "note", "createdAt": now,
-                "updatedAt": now, "isDeleted": false,
+                "id": "b3", "content": "Third", "variant": "note", "createdAt": nowMs,
+                "updatedAt": nowMs, "isDeleted": false,
             ],
         ]
         let body = try JSONSerialization.data(withJSONObject: payload)
@@ -398,11 +416,11 @@ final class APIIntegrationTests {
         try await seedUser(email: "del2@test.com")
         let cookie2 = try await login(email: "del2@test.com")
 
-        let now = ISO8601DateFormatter().string(from: Date())
+        let nowMs = epochMs()
         func mkBody(_ id: String) throws -> Data {
             try JSONSerialization.data(withJSONObject: [
                 "id": id, "content": "c", "variant": "note",
-                "createdAt": now, "updatedAt": now,
+                "createdAt": nowMs, "updatedAt": nowMs,
             ])
         }
 
@@ -429,10 +447,10 @@ final class APIIntegrationTests {
         // Insert 15 posts with distinct updatedAt values (1-second apart)
         let base = Date()
         for i in 0..<15 {
-            let t = ISO8601DateFormatter().string(from: base.addingTimeInterval(Double(i)))
+            let ms = epochMs(base.addingTimeInterval(Double(i)))
             let body = try JSONSerialization.data(withJSONObject: [
                 "id": "p-\(i)", "content": "c\(i)", "variant": "note",
-                "createdAt": t, "updatedAt": t,
+                "createdAt": ms, "updatedAt": ms,
             ])
             _ = try await http.request("POST", "/api/posts", body: body, cookie: cookie)
         }
@@ -442,9 +460,9 @@ final class APIIntegrationTests {
         #expect(page1.items.count == 10)
         #expect(page1.hasMore == true)
 
-        let lastUpdatedAt = ISO8601DateFormatter().string(from: page1.items.last!.updatedAt)
+        let lastMs = epochMs(page1.items.last!.updatedAt)
         let (_, data2, _) = try await http.request(
-            "GET", "/api/posts?limit=10&after=\(lastUpdatedAt)", cookie: cookie
+            "GET", "/api/posts?limit=10&after=\(lastMs)", cookie: cookie
         )
         let page2 = try http.decode(data2, as: ListResponse.self)
         #expect(!page2.items.isEmpty)
@@ -458,10 +476,10 @@ final class APIIntegrationTests {
         // Insert 15 posts with distinct timestamps
         let base = Date()
         for i in 0..<15 {
-            let t = ISO8601DateFormatter().string(from: base.addingTimeInterval(Double(i)))
+            let ms = epochMs(base.addingTimeInterval(Double(i)))
             let body = try JSONSerialization.data(withJSONObject: [
                 "id": "lp-\(i)", "content": "c\(i)", "variant": "note",
-                "createdAt": t, "updatedAt": t,
+                "createdAt": ms, "updatedAt": ms,
             ])
             _ = try await http.request("POST", "/api/posts", body: body, cookie: cookie)
         }

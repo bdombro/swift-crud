@@ -12,18 +12,18 @@ enum SMTPError: Error {
 
 // MARK: - Protocol
 
-/// Abstraction for delivering one-time login codes to users.
+/// Abstraction for delivering one-time 8-digit login codes to users.
 protocol EmailSender: Sendable {
-    /// Deliver the given code to the user's email address.
+    /// Deliver an 8-digit zero-padded code to the user's email address.
     func send(code: String, to email: String) async throws
 }
 
 // MARK: - Print fallback
 
-/// Prints the code to stdout — the default when no SMTP is configured.
+/// Prints the 8-digit code to stdout — the default when no SMTP is configured.
 struct PrintEmailSender: EmailSender {
     func send(code: String, to email: String) async throws {
-        print("Email send simulated: to=\(email), code=\(code)")
+        print("Email send simulated: to= \(email), code= \(code)")
     }
 }
 

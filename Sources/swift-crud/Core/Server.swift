@@ -169,16 +169,10 @@ final class Server: @unchecked Sendable {
                         case .body(var buf):
                             body.writeBuffer(&buf)
                             if body.readableBytes > HTTPLimits.maxRequestBodyBytes {
-                                var plHeaders = NIOHTTP1.HTTPHeaders()
-                                plHeaders.add(name: "Content-Type", value: "text/plain")
-                                try? await outbound.write(contentsOf: [
-                                    .head(
-                                        .init(
-                                            version: head.version, status: .payloadTooLarge,
-                                            headers: plHeaders)),
-                                    .body(.byteBuffer(ByteBuffer(string: "Request body too large"))),
-                                    .end(nil),
-                                ])
+                                await writeResponse(
+                                    HTTPResponse.apiError(.payloadTooLarge, .requestBodyTooLarge),
+                                    head: head,
+                                    outbound: outbound)
                                 return
                             }
                         case .end: break
@@ -230,10 +224,7 @@ final class Server: @unchecked Sendable {
             Logger.access(
                 start: start, method: head.method.rawValue, path: path, userId: "ANONYMOUS",
                 statusCode: 404, requestId: request.requestId)
-            var notFound = HTTPResponse(
-                statusCode: .notFound,
-                headers: [HTTPHeader("Content-Type"): "text/plain"],
-                body: Data("Not Found".utf8))
+            var notFound = HTTPResponse.apiError(.notFound, .routeNotFound)
             CORS.apply(to: &notFound, request: request)
             await writeResponse(notFound, head: head, outbound: outbound)
             return
@@ -280,13 +271,6 @@ final class Server: @unchecked Sendable {
         ])
     }
 
-    private static let internalErrorResponse: HTTPResponse = {
-        let body =
-            (try? HTTPResponse.encoder.encode(["message": "internal server error"]))
-            ?? Data(#"{"message":"internal server error"}"#.utf8)
-        return HTTPResponse(
-            statusCode: .internalServerError,
-            headers: [HTTPHeader("Content-Type"): "application/json"],
-            body: body)
-    }()
+    private static let internalErrorResponse: HTTPResponse = HTTPResponse.apiError(
+        .internalServerError, .internalServerError)
 }

@@ -14,6 +14,7 @@ struct SendCodeRequest: Codable {
 /// Request body for the login endpoint.
 struct LoginRequest: Codable {
     var email: String
+    /// 1–8 decimal digits; left-padded to 8 digits before verification (e.g. `"3910426"` → `"03910426"`).
     var code: String
 }
 
@@ -49,6 +50,28 @@ private let sendCodeRateLimiter = SendCodeRateLimiter()
 /// Limits send-code abuse by client IP (separate from per-email limits).
 private let sendCodeIPRateLimiter = SendCodeRateLimiter()
 
+// MARK: - Login codes
+
+/// One-time login codes: eight decimal digits, zero-padded (e.g. `"00428173"`).
+private let loginCodeLength = 8
+
+/// Draws a cryptographically random 8-digit code in `00000000`…`99999999`.
+private func generateLoginCode() -> String {
+    var value: UInt32 = 0
+    let status = SecRandomCopyBytes(kSecRandomDefault, MemoryLayout<UInt32>.size, &value)
+    precondition(status == errSecSuccess, "SecRandomCopyBytes failed")
+    return String(format: "%0\(loginCodeLength)u", value % 100_000_000)
+}
+
+/// Normalizes user input to eight digits (left-pads shorter numeric strings).
+private func normalizeLoginCode(_ raw: String) -> String? {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty, trimmed.count <= loginCodeLength,
+        trimmed.unicodeScalars.allSatisfy(CharacterSet.decimalDigits.contains)
+    else { return nil }
+    return String(repeating: "0", count: loginCodeLength - trimmed.count) + trimmed
+}
+
 // MARK: - Constant-time helpers
 
 /// Constant-time comparison for login code hashes (mitigates timing side channels).
@@ -67,7 +90,7 @@ private func constantTimeEqual(_ lhs: Data, _ rhs: Data) -> Bool {
 func getSessionHandler(req: HTTPRequest) async throws -> HTTPResponse {
     guard let userId = req.authUserId
     else {
-        return HTTPResponse.json(.unauthorized, ["message": "unauthorized"])
+        return HTTPResponse.apiError(.unauthorized, .unauthorized)
     }
     return HTTPResponse.json(.ok, userId)
 }
@@ -80,11 +103,16 @@ func loginHandler(req: HTTPRequest) async throws -> HTTPResponse {
 
     let user = try await User.read(from: db, sqlWhere: "email = ?", body.email).first
 
-    guard let codeData = body.code.data(using: .utf8) else {
-        return HTTPResponse.json(.badRequest, ["message": "invalid code encoding"])
+    guard let code = normalizeLoginCode(body.code),
+        let codeData = code.data(using: .utf8)
+    else {
+        return HTTPResponse.apiError(.badRequest, .invalidCodeEncoding)
     }
     let reqHash = SHA256.hash(data: codeData).compactMap { String(format: "%02x", $0) }.joined()
 
+    // Accept the login only when a send-code is still pending: hash and createdAt exist,
+    // fewer than 3 failed attempts (codeAttempts 0…2), and the code is younger than 10 minutes.
+    // Compare SHA-256 hex digests in constant time so timing does not leak hash bytes.
     let hashMatch: Bool
     if let user, let hash = user.codeHash, let created = user.codeCreatedAt,
        (user.codeAttempts ?? 0) <= 2,
@@ -103,7 +131,7 @@ func loginHandler(req: HTTPRequest) async throws -> HTTPResponse {
     }
 
     guard hashMatch, let user else {
-        return HTTPResponse.json(.unauthorized, ["message": "invalid email or password"])
+        return HTTPResponse.apiError(.unauthorized, .invalidEmailOrPassword)
     }
 
     var u = user
@@ -126,8 +154,8 @@ func logoutHandler(req: HTTPRequest) async throws -> HTTPResponse {
     return res
 }
 
-/// Request a one-time login code.  When SMTP is configured the code is emailed;
-/// otherwise it is printed to stdout.
+/// Request a one-time 8-digit login code. When SMTP is configured the code is emailed;
+/// otherwise it is printed to stdout (`PrintEmailSender`).
 func sendCodeHandler(req: HTTPRequest) async throws -> HTTPResponse {
     let body = try await req.decode(as: SendCodeRequest.self)
 
@@ -136,34 +164,30 @@ func sendCodeHandler(req: HTTPRequest) async throws -> HTTPResponse {
         body.email.count <= 254,
         body.email.split(separator: "@", omittingEmptySubsequences: false).count == 2
     else {
-        return HTTPResponse.json(.unauthorized, ["message": "invalid email"])
+        return HTTPResponse.apiError(.unauthorized, .invalidEmail)
     }
 
     let clientIP = req.remoteAddress ?? "unknown"
     let ipLimited = await sendCodeIPRateLimiter.checkAndRecord(
         key: clientIP, maxRequests: 10, windowSeconds: 60)
     guard !ipLimited else {
-        return HTTPResponse.json(
-            .tooManyRequests,
-            ["message": "Too many code requests from this network. Try again later."])
+        return HTTPResponse.apiError(.tooManyRequests, .sendCodeIPRateLimited)
     }
 
     let rateLimited = await sendCodeRateLimiter.checkAndRecord(
         key: body.email, maxRequests: 5, windowSeconds: 60)
     guard !rateLimited else {
-        return HTTPResponse.json(.tooManyRequests, ["message": "Too many code requests. Try again later."])
+        return HTTPResponse.apiError(.tooManyRequests, .sendCodeEmailRateLimited)
     }
 
-    let code = Data((0..<20).map { _ in UInt8.random(in: .min ... .max) }).base64EncodedString()
+    let code = generateLoginCode()
     let codeData = code.data(using: .utf8)!
     let hash = SHA256.hash(data: codeData).compactMap { String(format: "%02x", $0) }.joined()
 
     if let user = try await User.read(from: db, sqlWhere: "email = ?", body.email).first {
         let twoMinsAgo = Date().addingTimeInterval(-120)
         if let created = user.codeCreatedAt, created > twoMinsAgo {
-            return HTTPResponse.json(
-                .tooManyRequests,
-                ["message": "Wait 2 minutes after requesting a code to try again."])
+            return HTTPResponse.apiError(.tooManyRequests, .sendCodeCooldown)
         }
 
         var u = user

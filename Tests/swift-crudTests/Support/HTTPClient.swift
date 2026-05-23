@@ -40,13 +40,13 @@ struct HTTPClient {
 
     func jsonBody<T: Encodable>(_ value: T) throws -> Data {
         let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .iso8601
+        enc.dateEncodingStrategy = .millisecondsSince1970
         return try enc.encode(value)
     }
 
     func decode<T: Decodable>(_ data: Data, as _: T.Type = T.self) throws -> T {
         let dec = JSONDecoder()
-        dec.dateDecodingStrategy = .iso8601
+        dec.dateDecodingStrategy = .millisecondsSince1970
         return try dec.decode(T.self, from: data)
     }
 

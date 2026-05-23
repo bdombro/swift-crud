@@ -9,6 +9,6 @@ func healthzHandler(req: HTTPRequest) async throws -> HTTPResponse {
         _ = try await db.query("SELECT 1")
         return HTTPResponse.json(.ok, ["status": "ok", "db": "connected"])
     } catch {
-        return HTTPResponse.json(.serviceUnavailable, ["status": "error", "db": "unavailable"])
+        return HTTPResponse.apiError(.serviceUnavailable, .databaseUnavailable)
     }
 }

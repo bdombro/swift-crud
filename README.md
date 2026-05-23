@@ -103,7 +103,8 @@ Request a one-time login code by email.
 **Notes:**
 - New emails get a user record created automatically.
 - Existing users get their code hash and attempt count reset.
-- By default the code is printed to stdout (`Email send simulated: to=..., code=...`). Set `SMTP_HOST` and related env vars to deliver via email instead.
+- Codes are **8 decimal digits**, zero-padded (e.g. `00428173`). Shorter numeric input on login is left-padded to 8 digits.
+- By default the code is printed to stdout (`Email send simulated: to= ..., code= ...`). Set `SMTP_HOST` and related env vars to deliver via email instead.
 
 ---
 
@@ -127,6 +128,7 @@ Exchange a code for a session cookie.
 | `401` | Invalid email, code, or code expired (>10 min / max 3 attempts) |
 
 **Notes:**
+- `code` must be numeric (up to 8 digits); values shorter than 8 digits are zero-padded before verification.
 - On success the server sets `user_id=<id>.<sig>` with `Path=/`, `HttpOnly`, and (by default) `Secure` and `SameSite=Lax`. Set `COOKIE_DOMAIN` for cross-subdomain sharing; set `CORS_ALLOWED_ORIGINS` and use credentialed requests from the frontend when the API and app are on different origins.
 - Codes expire after 10 minutes.
 - After 3 failed attempts the code is invalidated.
@@ -151,31 +153,23 @@ Returns an expired `user_id` cookie to clear the client-side value.
 
 ---
 
-#### `GET /api/session/`
+#### `GET /api/session`
 
-Return the currently authenticated user's profile.
+Validate the session cookie and return the authenticated user's id.
 
-**Cookies:** `user_id=<id>`
+**Cookies:** `user_id=<id>.<sig>`
 
-**Response:**
-
-| Status | Meaning |
-|--------|---------|
-| `200` | User object |
+**Response `200`:**
 
 ```json
-{
-  "id": 1,
-  "createdAt": "2026-05-12T00:00:00Z",
-  "codeAttempts": null,
-  "codeCreatedAt": null,
-  "codeHash": null,
-  "email": "user@example.com"
-}
+1
 ```
+
+The body is a JSON number (the user's primary key), not a user object. Clients such as `@slimr/dbsync`'s `RestAdapter` only need the status code (`200` = logged in).
 
 | Status | Meaning |
 |--------|---------|
+| `200` | Authenticated — body is the numeric `userId` |
 | `401` | Missing or invalid session cookie |
 
 ---
@@ -195,7 +189,7 @@ List the authenticated user's posts, newest first.
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
 | `limit` | int | 10 | Max items (capped at 1000) |
-| `after` | ISO-8601 date | — | Return posts with `updatedAt >=` this value (cursor pagination) |
+| `after` | Unix ms | — | Return posts with `updatedAt >` this cursor (epoch milliseconds) |
 
 **Response `200`:**
 ```json
@@ -204,8 +198,8 @@ List the authenticated user's posts, newest first.
     {
       "id": "a1b2c3d4",
       "content": "Hello world",
-      "createdAt": "2026-05-12T00:00:00Z",
-      "updatedAt": "2026-05-12T00:00:00Z",
+      "createdAt": 1747008000000,
+      "updatedAt": 1747008000000,
       "userId": 1,
       "variant": "note",
       "isDeleted": false
@@ -215,7 +209,7 @@ List the authenticated user's posts, newest first.
 }
 ```
 
-`hasMore` is `true` when there are additional pages beyond the returned set. Use the last item's `updatedAt` as the `after` parameter for the next page.
+`hasMore` is `true` when there are additional pages beyond the returned set. Use the last item's `updatedAt` (Unix epoch **milliseconds**, JSON number) as the `after` query parameter for the next page.
 
 | Status | Meaning |
 |--------|---------|
@@ -235,8 +229,8 @@ Create a new post.
   "id": "my-unique-id",
   "content": "Hello world",
   "variant": "note",
-  "createdAt": "2026-05-12T00:00:00Z",
-  "updatedAt": "2026-05-12T00:00:00Z"
+  "createdAt": 1747008000000,
+  "updatedAt": 1747008000000
 }
 ```
 
@@ -265,8 +259,8 @@ Fetch a single post by ID. Scoped to the authenticated user.
 {
   "id": "a1b2c3d4",
   "content": "Hello world",
-  "createdAt": "2026-05-12T00:00:00Z",
-  "updatedAt": "2026-05-12T00:00:00Z",
+  "createdAt": 1747008000000,
+  "updatedAt": 1747008000000,
   "userId": 1,
   "variant": "note"
 }
@@ -290,7 +284,7 @@ Update a post. The request body must include a `updatedAt` timestamp that is **g
 ```json
 {
   "content": "Updated content",
-  "updatedAt": "2026-05-12T01:00:00Z"
+  "updatedAt": 1747011600000
 }
 ```
 
@@ -358,8 +352,8 @@ Bulk upsert multiple posts in a single transaction. Accepts an array of post obj
     "id": "post-1",
     "content": "First",
     "variant": "note",
-    "createdAt": "2026-05-12T00:00:00Z",
-    "updatedAt": "2026-05-12T00:00:00Z"
+    "createdAt": 1747008000000,
+    "updatedAt": 1747008000000
   },
   {
     "id": "post-2",
@@ -382,10 +376,31 @@ Bulk upsert multiple posts in a single transaction. Accepts an array of post obj
 
 ---
 
-### Common status codes
+### Error responses
+
+Errors return JSON with a human-readable `message` and a stable three-digit application `code` (not the HTTP status):
+
+```json
+{ "message": "invalid email", "code": 104 }
+```
 
 | Code | Meaning |
 |------|---------|
+| `101` | Unauthorized (missing or invalid session) |
+| `102` | Invalid login code encoding |
+| `103` | Invalid email or login code |
+| `104` | Invalid email (send-code) |
+| `105`–`107` | Send-code rate limits / cooldown |
+| `201`–`208` | Post validation, not found, or bulk id errors |
+| `301` | Database unavailable (health check) |
+| `901` | Unknown route |
+| `902` | Request body too large |
+| `903` | Internal server error |
+
+### Common HTTP status codes
+
+| Status | Meaning |
+|--------|---------|
 | `200` | Success |
 | `201` | Created |
 | `404` | Not found |
@@ -417,6 +432,7 @@ Sources/swift-crud/
 │   ├── Globals.swift       # Module singletons (db, auth secret, cookie/CORS, email)
 │   ├── SessionCookie.swift # Set-Cookie assembly for session auth
 │   ├── CORS.swift          # Credentialed CORS for allowed frontend origins
+│   ├── APIError.swift      # Three-digit error codes and JSON error bodies
 │   ├── HTTPLimits.swift    # Request body / content size caps
 │   ├── HTTPRequest.swift   # Request type + query parsing + handler typealias
 │   └── HTTPResponse.swift  # Response type + JSON helper

@@ -10,7 +10,7 @@ struct HTTPResponse {
 
     static let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
+        encoder.dateEncodingStrategy = .millisecondsSince1970
         return encoder
     }()
 

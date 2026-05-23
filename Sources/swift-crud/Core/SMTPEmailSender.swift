@@ -155,9 +155,9 @@ struct SMTPEmailSender: EmailSender {
             "To: \(recipient)\r\n" +
             "Subject: Your login code\r\n" +
             "\r\n" +
-            "Your login code is: \(code)\r\n" +
+            "Your 8-digit login code is: \(code)\r\n" +
             "\r\n" +
-            "This code expires in 10 minutes."
+            "Enter all 8 digits. This code expires in 10 minutes."
     }
 }
 
