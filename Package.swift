@@ -11,7 +11,7 @@ let package = Package(
     ],
 
     dependencies: [
-        .package(url: "https://github.com/bdombro/Blackbird-fast", from: "1.0.1"),
+        .package(url: "https://github.com/bdombro/Blackbird-fast", from: "1.0.2"),
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.55.0"),
         .package(url: "https://github.com/apple/swift-nio-ssl.git", from: "2.25.0"),
