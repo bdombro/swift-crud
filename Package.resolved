@@ -6,8 +6,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/bdombro/Blackbird-fast",
       "state" : {
-        "revision" : "a00cbe54ee77cbdf7fc0f59df8e68cb7a8cfdfbb",
-        "version" : "1.0.0"
+        "revision" : "d536c0bef19183a5e145d2ffd60009a968d37667",
+        "version" : "1.0.1"
       }
     },
     {
