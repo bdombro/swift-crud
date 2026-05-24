@@ -5,9 +5,40 @@ import Foundation
 // MARK: - SMTP errors
 
 /// Errors raised by the SMTP client implementation.
-enum SMTPError: Error {
+enum SMTPError: Error, CustomStringConvertible {
     /// `AUTH LOGIN` is refused when the connection is not protected by TLS.
     case authRequiresTLS
+    /// TCP connect or an SMTP reply took longer than `SMTP_TIMEOUT_SECONDS`.
+    case timeout
+    /// Server returned a non-success SMTP status (body is the raw multiline reply).
+    case serverRejected(String)
+    /// `SMTP_HOST` is not usable for TLS SNI (e.g. MX names starting with `_`); set `SMTP_TLS_SERVERNAME`.
+    case invalidTLSHostname(String)
+
+    var description: String {
+        switch self {
+        case .authRequiresTLS:
+            return "SMTP auth requires TLS (set SMTP_TLS_MODE to starttls or tls)"
+        case .timeout:
+            return "SMTP operation timed out"
+        case .serverRejected(let reply):
+            return "SMTP server rejected command: \(reply.prefix(200))"
+        case .invalidTLSHostname(let host):
+            return "SMTP TLS hostname \(host) is invalid; set SMTP_TLS_SERVERNAME (e.g. mail.example.com)"
+        }
+    }
+}
+
+// MARK: - From header formatting
+
+/// RFC 5322 `From` value: optional display name plus angle-bracketed email.
+func formatSMTPFromHeader(displayName: String?, email: String) -> String {
+    let trimmedName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !trimmedName.isEmpty else { return email }
+    let escaped = trimmedName
+        .replacingOccurrences(of: "\\", with: "\\\\")
+        .replacingOccurrences(of: "\"", with: "\\\"")
+    return "\"\(escaped)\" <\(email)>"
 }
 
 // MARK: - Protocol
@@ -35,9 +66,12 @@ extension EmailSender where Self == PrintEmailSender {
 
 extension EmailSender where Self == SMTPEmailSender {
     static func smtp(host: String, port: UInt16, username: String, password: String, from: String,
-                     tlsMode: SMTPTLSMode = .starttls, tlsInsecure: Bool = false) -> SMTPEmailSender {
+                     fromName: String? = nil, tlsMode: SMTPTLSMode = .starttls, tlsInsecure: Bool = false,
+                     timeoutSeconds: Int = defaultSMTPTimeoutSeconds,
+                     tlsServerName: String? = nil) -> SMTPEmailSender {
         SMTPEmailSender(host: host, port: port, username: username, password: password,
-                        from: from, tlsMode: tlsMode, tlsInsecure: tlsInsecure)
+                        from: from, fromName: fromName, tlsMode: tlsMode, tlsInsecure: tlsInsecure,
+                        timeoutSeconds: timeoutSeconds, tlsServerName: tlsServerName)
     }
 }
 
@@ -51,5 +85,7 @@ func makeEmailSender(from env: Environment) -> EmailSender {
         return .printFallback
     }
     return .smtp(host: host, port: env.smtpPort, username: username, password: password, from: from,
-                 tlsMode: env.smtpTLSMode, tlsInsecure: env.smtpTlsInsecure)
+                 fromName: env.smtpFromName, tlsMode: env.smtpTLSMode, tlsInsecure: env.smtpTlsInsecure,
+                 timeoutSeconds: env.smtpTimeoutSeconds,
+                 tlsServerName: env.smtpTLSServerName)
 }

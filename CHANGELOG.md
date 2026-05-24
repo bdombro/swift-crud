@@ -13,9 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - HTTP server uses POSIX NIO (`ServerBootstrap` / `MultiThreadedEventLoopGroup`) on all platforms; dropped NIO Transport Services.
 
 ### Added
+- Optional `SMTP_FROM_NAME` for a display name on outgoing login-code emails (`From: "Name" <addr>`).
 - Linux support (same POSIX NIO stack as macOS).
 
 ### Fixed
+- SMTP client no longer hangs on replies ending in CRLF; connect/read timeouts, `SMTP_TLS_SERVERNAME` for MX hosts, and handler error logging added.
 - Startup failures (missing `AUTH_SECRET`, bind errors, etc.) print a line to stderr and exit with status 1 instead of exiting silently.
 - Linux build: use `swift-crypto` (`import Crypto`) for HMAC cookies and login code hashing on all platforms.
 - Linux build: generate login codes via `secureRandomUInt32()` (`/dev/urandom`) on all platforms.

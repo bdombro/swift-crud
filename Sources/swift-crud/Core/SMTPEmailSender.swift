@@ -7,6 +7,9 @@ import NIO
 /// Shared `EventLoopGroup` for SMTP when the app configures SMTP (created in `main`, shut down after server stop).
 nonisolated(unsafe) var smtpEventLoopGroup: MultiThreadedEventLoopGroup?
 
+/// Default seconds to wait for TCP connect and each SMTP response.
+let defaultSMTPTimeoutSeconds: Int = 30
+
 /// Sendable wrapper for NIOSSL types that are explicitly unavailable for Sendable.
 private final class SendableBox<T>: @unchecked Sendable {
     let value: T
@@ -21,10 +24,23 @@ struct SMTPEmailSender: EmailSender {
     let username: String
     let password: String
     let from: String
+    /// Optional display name for the `From` header (`SMTP_FROM_NAME`).
+    let fromName: String?
     let tlsMode: SMTPTLSMode
     let tlsInsecure: Bool
+    let timeoutSeconds: Int
+    /// Hostname for TLS certificate verification / SNI (defaults to `host` when valid).
+    let tlsServerName: String?
+
+    private var tlsPeerName: String {
+        if let tlsServerName, !tlsServerName.isEmpty { return tlsServerName }
+        return host
+    }
 
     func send(code: String, to email: String) async throws {
+        if tlsMode != .none, !Self.isValidTLSServerName(tlsPeerName) {
+            throw SMTPError.invalidTLSHostname(tlsPeerName)
+        }
         let message = buildMessage(code: code, to: email)
         let group: MultiThreadedEventLoopGroup
         let ownsGroup: Bool
@@ -41,32 +57,56 @@ struct SMTPEmailSender: EmailSender {
             }
         }
 
-        let handler = SMTPResponseHandler()
+        let handler = SMTPResponseHandler(timeout: TimeAmount.seconds(Int64(timeoutSeconds)))
         var maybeChannel: Channel?
 
         do {
             let channel = try await connect(group: group, handler: handler)
             maybeChannel = channel
 
-            _ = try await send("EHLO swift-crud\r\n", channel: channel, handler: handler)
+            _ = try await readResponse(channel: channel, handler: handler)
+            try requireSMTPCode(in: try await exchange("EHLO swift-crud\r\n", channel: channel, handler: handler),
+                                allowed: [250])
 
             if tlsMode == .starttls {
+                try requireSMTPCode(
+                    in: try await exchange("STARTTLS\r\n", channel: channel, handler: handler),
+                    allowed: [220])
                 try await upgradeToTLS(channel: channel, handler: handler)
-                _ = try await send("EHLO swift-crud\r\n", channel: channel, handler: handler)
+                try requireSMTPCode(
+                    in: try await exchange("EHLO swift-crud\r\n", channel: channel, handler: handler),
+                    allowed: [250])
             }
 
             if tlsMode == .none {
                 throw SMTPError.authRequiresTLS
             }
 
-            _ = try await send("AUTH LOGIN\r\n", channel: channel, handler: handler)
-            _ = try await send(Data(username.utf8).base64EncodedString() + "\r\n", channel: channel, handler: handler)
-            _ = try await send(Data(password.utf8).base64EncodedString() + "\r\n", channel: channel, handler: handler)
-            _ = try await send("MAIL FROM:<\(from)>\r\n", channel: channel, handler: handler)
-            _ = try await send("RCPT TO:<\(email)>\r\n", channel: channel, handler: handler)
-            _ = try await send("DATA\r\n", channel: channel, handler: handler)
-            _ = try await send(message + "\r\n.\r\n", channel: channel, handler: handler)
-            _ = try await send("QUIT\r\n", channel: channel, handler: handler)
+            try requireSMTPCode(
+                in: try await exchange("AUTH LOGIN\r\n", channel: channel, handler: handler),
+                allowed: [334])
+            try requireSMTPCode(
+                in: try await exchange(Data(username.utf8).base64EncodedString() + "\r\n", channel: channel,
+                                      handler: handler),
+                allowed: [334])
+            try requireSMTPCode(
+                in: try await exchange(Data(password.utf8).base64EncodedString() + "\r\n", channel: channel,
+                                      handler: handler),
+                allowed: [235])
+
+            try requireSMTPCode(
+                in: try await exchange("MAIL FROM:<\(from)>\r\n", channel: channel, handler: handler),
+                allowed: [250])
+            try requireSMTPCode(
+                in: try await exchange("RCPT TO:<\(email)>\r\n", channel: channel, handler: handler),
+                allowed: [250, 251])
+            try requireSMTPCode(
+                in: try await exchange("DATA\r\n", channel: channel, handler: handler),
+                allowed: [354])
+            try requireSMTPCode(
+                in: try await exchange(message + "\r\n.\r\n", channel: channel, handler: handler),
+                allowed: [250])
+            _ = try await exchange("QUIT\r\n", channel: channel, handler: handler)
 
             try? await channel.close().get()
         } catch {
@@ -79,17 +119,22 @@ struct SMTPEmailSender: EmailSender {
 
     // MARK: - Connection
 
+    private static func isValidTLSServerName(_ name: String) -> Bool {
+        !name.isEmpty && !name.hasPrefix("_") && !name.contains(" ")
+    }
+
     private func connect(group: EventLoopGroup, handler: SMTPResponseHandler) async throws -> Channel {
         let sslBox: SendableBox<NIOSSLClientHandler>?
         if self.tlsMode == .tls {
             let config = self.makeTLSConfig()
             let ctx = try NIOSSLContext(configuration: config)
-            sslBox = SendableBox(try NIOSSLClientHandler(context: ctx, serverHostname: self.host))
+            sslBox = SendableBox(try NIOSSLClientHandler(context: ctx, serverHostname: self.tlsPeerName))
         } else {
             sslBox = nil
         }
         let bootstrap = ClientBootstrap(group: group)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
+            .channelOption(ChannelOptions.connectTimeout, value: TimeAmount.seconds(Int64(timeoutSeconds)))
             .channelOption(ChannelOptions.autoRead, value: true)
             .channelInitializer { channel in
                 if let box = sslBox {
@@ -106,15 +151,13 @@ struct SMTPEmailSender: EmailSender {
     // MARK: - STARTTLS upgrade
 
     private func upgradeToTLS(channel: Channel, handler: SMTPResponseHandler) async throws {
-        _ = try await send("STARTTLS\r\n", channel: channel, handler: handler)
-
         let config = makeTLSConfig()
         let ctx = try NIOSSLContext(configuration: config)
-        let box = SendableBox(try NIOSSLClientHandler(context: ctx, serverHostname: host))
-        nonisolated(unsafe) let h = box.value
+        let box = SendableBox(try NIOSSLClientHandler(context: ctx, serverHostname: tlsPeerName))
+        nonisolated(unsafe) let sslHandler = box.value
 
         try await channel.eventLoop.submit {
-            channel.pipeline.addHandler(h, position: .first).whenComplete { _ in }
+            channel.pipeline.addHandler(sslHandler, position: .first)
         }.get()
     }
 
@@ -130,28 +173,37 @@ struct SMTPEmailSender: EmailSender {
 
     // MARK: - Request / response
 
-    @discardableResult
-    private func send(_ command: String, channel: Channel, handler: SMTPResponseHandler) async throws -> String {
+    private func exchange(_ command: String, channel: Channel, handler: SMTPResponseHandler) async throws -> String {
+        try await sendCommand(command, channel: channel, handler: handler)
+        return try await readResponse(channel: channel, handler: handler)
+    }
+
+    private func sendCommand(_ command: String, channel: Channel, handler: SMTPResponseHandler) async throws {
+        try await channel.eventLoop.submit {
+            handler.cancelTimeout()
+            let buffer = channel.allocator.buffer(string: command)
+            channel.writeAndFlush(buffer, promise: nil)
+        }.get()
+    }
+
+    private func readResponse(channel: Channel, handler: SMTPResponseHandler) async throws -> String {
         let promise = channel.eventLoop.makePromise(of: String.self)
-        channel.eventLoop.execute {
-            if var acc = handler.accumulated, acc.readableBytes > 0 {
-                let result = acc.readString(length: acc.readableBytes) ?? ""
-                acc.clear()
-                handler.accumulated = acc
-                promise.succeed(result)
-            } else {
-                handler.responsePromise = promise
-                let buffer = channel.allocator.buffer(string: command)
-                _ = channel.writeAndFlush(buffer)
+        try await channel.eventLoop.submit {
+            handler.cancelTimeout()
+            if let buffered = handler.drainIfComplete() {
+                promise.succeed(buffered)
+                return
             }
-        }
+            handler.beginWaiting(promise: promise, on: channel.eventLoop)
+        }.get()
         return try await promise.futureResult.get()
     }
 
     // MARK: - Message builder
 
     private func buildMessage(code: String, to recipient: String) -> String {
-        return "From: \(from)\r\n" +
+        let fromHeader = formatSMTPFromHeader(displayName: fromName, email: from)
+        return "From: \(fromHeader)\r\n" +
             "To: \(recipient)\r\n" +
             "Subject: Your login code\r\n" +
             "\r\n" +
@@ -161,20 +213,38 @@ struct SMTPEmailSender: EmailSender {
     }
 }
 
+// MARK: - SMTP framing (testable)
+
+/// Returns true when `response` ends with a final SMTP status line (`ddd `), not a continuation (`ddd-`).
+func isSMTPResponseComplete(_ response: String) -> Bool {
+    guard let last = smtpResponseLines(response).last else { return false }
+    guard last.count >= 4 else { return false }
+    let idx3 = last.index(last.startIndex, offsetBy: 3)
+    return last.prefix(3).allSatisfy(\.isNumber) && last[idx3] == " "
+}
+
+/// Final status code from the last non-empty line of a multiline SMTP reply.
+func smtpFinalStatusCode(_ response: String) -> Int? {
+    guard let last = smtpResponseLines(response).last, last.count >= 3 else { return nil }
+    return Int(last.prefix(3))
+}
+
+/// Throws when the final SMTP status is not one of `allowed`.
+func requireSMTPCode(in response: String, allowed: [Int]) throws {
+    guard let code = smtpFinalStatusCode(response), allowed.contains(code) else {
+        throw SMTPError.serverRejected(response.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+}
+
+private func smtpResponseLines(_ response: String) -> [String] {
+    response.split(separator: "\r\n", omittingEmptySubsequences: true).map(String.init)
+}
+
 // MARK: - Helpers
 
 /// Bridge to NIO's synchronous shutdown from Swift async.
 private func shutdownGroup(_ group: EventLoopGroup) {
     group.shutdownGracefully(queue: .global()) { _ in }
-}
-
-/// Returns true when `response` ends with a final SMTP status line (`ddd `), not a continuation (`ddd-`).
-fileprivate func isSMTPResponseComplete(_ response: String) -> Bool {
-    let lines = response.components(separatedBy: "\r\n")
-    guard let last = lines.last, !last.isEmpty else { return false }
-    guard last.count >= 4 else { return false }
-    let idx3 = last.index(last.startIndex, offsetBy: 3)
-    return last.prefix(3).allSatisfy(\.isNumber) && last[idx3] == " "
 }
 
 // MARK: - NIO channel handler
@@ -183,8 +253,32 @@ fileprivate func isSMTPResponseComplete(_ response: String) -> Bool {
 private final class SMTPResponseHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
 
-    fileprivate var responsePromise: EventLoopPromise<String>?
+    private let timeout: TimeAmount
+    private var responsePromise: EventLoopPromise<String>?
+    private var timeoutTask: Scheduled<Void>?
     fileprivate var accumulated: ByteBuffer?
+
+    init(timeout: TimeAmount) {
+        self.timeout = timeout
+    }
+
+    fileprivate func drainIfComplete() -> String? {
+        guard let acc = accumulated, acc.readableBytes > 0 else { return nil }
+        let response = String(decoding: acc.readableBytesView, as: UTF8.self)
+        guard isSMTPResponseComplete(response) else { return nil }
+        accumulated?.clear()
+        return response
+    }
+
+    fileprivate func beginWaiting(promise: EventLoopPromise<String>, on loop: EventLoop) {
+        responsePromise = promise
+        scheduleTimeout(on: loop)
+    }
+
+    fileprivate func cancelTimeout() {
+        timeoutTask?.cancel()
+        timeoutTask = nil
+    }
 
     func channelActive(context: ChannelHandlerContext) {
         accumulated = context.channel.allocator.buffer(capacity: 0)
@@ -199,14 +293,28 @@ private final class SMTPResponseHandler: ChannelInboundHandler, @unchecked Senda
         let response = String(decoding: acc.readableBytesView, as: UTF8.self)
         guard isSMTPResponseComplete(response) else { return }
         responsePromise = nil
+        cancelTimeout()
         accumulated?.clear()
         promise.succeed(response)
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
+        failPendingPromise(error)
+        context.close(promise: nil)
+    }
+
+    private func failPendingPromise(_ error: Error) {
+        cancelTimeout()
         if let promise = responsePromise {
             responsePromise = nil
             promise.fail(error)
+        }
+    }
+
+    private func scheduleTimeout(on loop: EventLoop) {
+        cancelTimeout()
+        timeoutTask = loop.scheduleTask(in: timeout) { [weak self] in
+            self?.failPendingPromise(SMTPError.timeout)
         }
     }
 }

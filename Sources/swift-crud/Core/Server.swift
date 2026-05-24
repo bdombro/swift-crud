@@ -241,6 +241,7 @@ final class Server: @unchecked Sendable {
         do {
             response = try await handler(request)
         } catch {
+            Logger.error("handler \(head.method.rawValue) \(path): \(error)")
             response = Self.internalErrorResponse
         }
         CORS.apply(to: &response, request: request)

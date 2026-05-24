@@ -98,11 +98,20 @@ struct Environment {
     /// The "From" address used in outgoing emails.
     let smtpFrom: String?
 
+    /// Optional display name for the `From` header (`SMTP_FROM_NAME`).
+    let smtpFromName: String?
+
     /// TLS mode for SMTP connections.  Default `.starttls`.
     let smtpTLSMode: SMTPTLSMode
 
     /// When true, skip TLS certificate validation (dev only).  Default `false`.
     let smtpTlsInsecure: Bool
+
+    /// Seconds to wait for SMTP connect and each server reply.  Default `30`.
+    let smtpTimeoutSeconds: Int
+
+    /// TLS SNI / certificate hostname when `SMTP_HOST` is not a valid DNS name (e.g. `_dc-mx.*` MX records).
+    let smtpTLSServerName: String?
 
     // MARK: Init from real environment
 
@@ -137,8 +146,11 @@ struct Environment {
         smtpUsername = mergedEnv["SMTP_USERNAME"].flatMap { $0.isEmpty ? nil : $0 }
         smtpPassword = mergedEnv["SMTP_PASSWORD"].flatMap { $0.isEmpty ? nil : $0 }
         smtpFrom = mergedEnv["SMTP_FROM"].flatMap { $0.isEmpty ? nil : $0 }
+        smtpFromName = mergedEnv["SMTP_FROM_NAME"].flatMap { $0.isEmpty ? nil : $0 }
         smtpTLSMode = mergedEnv["SMTP_TLS_MODE"].flatMap(SMTPTLSMode.init) ?? .starttls
         smtpTlsInsecure = mergedEnv["SMTP_TLS_INSECURE"].map { $0 == "true" || $0 == "1" } ?? false
+        smtpTimeoutSeconds = mergedEnv["SMTP_TIMEOUT_SECONDS"].flatMap(Int.init) ?? defaultSMTPTimeoutSeconds
+        smtpTLSServerName = mergedEnv["SMTP_TLS_SERVERNAME"].flatMap { $0.isEmpty ? nil : $0 }
     }
 
     // MARK: Init for testing (allows overriding specific values)
@@ -158,8 +170,11 @@ struct Environment {
             smtpUsername: nil,
             smtpPassword: nil,
             smtpFrom: nil,
+            smtpFromName: nil,
             smtpTLSMode: .starttls,
-            smtpTlsInsecure: false
+            smtpTlsInsecure: false,
+            smtpTimeoutSeconds: defaultSMTPTimeoutSeconds,
+            smtpTLSServerName: nil
         )
     }
 
@@ -177,8 +192,11 @@ struct Environment {
         smtpUsername: String? = nil,
         smtpPassword: String? = nil,
         smtpFrom: String? = nil,
+        smtpFromName: String? = nil,
         smtpTLSMode: SMTPTLSMode = .starttls,
-        smtpTlsInsecure: Bool = false
+        smtpTlsInsecure: Bool = false,
+        smtpTimeoutSeconds: Int = defaultSMTPTimeoutSeconds,
+        smtpTLSServerName: String? = nil
     ) {
         self.port = port
         self.dbPath = dbPath
@@ -192,7 +210,10 @@ struct Environment {
         self.smtpUsername = smtpUsername
         self.smtpPassword = smtpPassword
         self.smtpFrom = smtpFrom
+        self.smtpFromName = smtpFromName
         self.smtpTLSMode = smtpTLSMode
         self.smtpTlsInsecure = smtpTlsInsecure
+        self.smtpTimeoutSeconds = smtpTimeoutSeconds
+        self.smtpTLSServerName = smtpTLSServerName
     }
 }

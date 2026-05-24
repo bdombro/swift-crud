@@ -66,6 +66,9 @@ The server is configured via environment variables:
 | `SMTP_USERNAME` | — | SMTP username |
 | `SMTP_PASSWORD` | — | SMTP password |
 | `SMTP_FROM` | — | "From" address for outgoing emails |
+| `SMTP_FROM_NAME` | — | Optional display name shown in the `From` header (e.g. `BTEC`) |
+| `SMTP_TIMEOUT_SECONDS` | `30` | TCP connect and per-command SMTP read timeout |
+| `SMTP_TLS_SERVERNAME` | — | TLS SNI / cert hostname when `SMTP_HOST` is an MX name (e.g. `_dc-mx.*`) or does not match the mail cert |
 
 Example with email sending:
 
