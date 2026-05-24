@@ -9,34 +9,34 @@ struct EnvironmentTests {
 
     // MARK: Defaults
 
-    @Test("default port is 8000")
+    @Test("default port is 8222")
     func defaultPort() {
-        #expect(Environment().port == 8000)
+        #expect(Environment.testingDefaults().port == 8222)
     }
 
     @Test("default dbPath is db.sqlite")
     func defaultDbPath() {
-        #expect(Environment().dbPath == "db.sqlite")
+        #expect(Environment.testingDefaults().dbPath == "db.sqlite")
     }
 
     @Test("default dbDebug is false")
     func defaultDbDebug() {
-        #expect(Environment().dbDebug == false)
+        #expect(Environment.testingDefaults().dbDebug == false)
     }
 
     @Test("default smtpHost is nil")
     func defaultSmtpHost() {
-        #expect(Environment().smtpHost == nil)
+        #expect(Environment.testingDefaults().smtpHost == nil)
     }
 
     @Test("default smtpPort is 587")
     func defaultSmtpPort() {
-        #expect(Environment().smtpPort == 587)
+        #expect(Environment.testingDefaults().smtpPort == 587)
     }
 
     @Test("default smtpUsername is nil")
     func defaultSmtpUsername() {
-        #expect(Environment().smtpUsername == nil)
+        #expect(Environment.testingDefaults().smtpUsername == nil)
     }
 
     // MARK: Overrides
@@ -58,17 +58,17 @@ struct EnvironmentTests {
 
     @Test("default cookieDomain is nil")
     func defaultCookieDomain() {
-        #expect(Environment().cookieDomain == nil)
+        #expect(Environment.testingDefaults().cookieDomain == nil)
     }
 
     @Test("default cookieSecure is true")
     func defaultCookieSecure() {
-        #expect(Environment().cookieSecure == true)
+        #expect(Environment.testingDefaults().cookieSecure == true)
     }
 
     @Test("default corsAllowedOrigins is empty")
     func defaultCorsOrigins() {
-        #expect(Environment().corsAllowedOrigins.isEmpty)
+        #expect(Environment.testingDefaults().corsAllowedOrigins.isEmpty)
     }
 
     @Test("custom cookie and CORS settings round-trip")
@@ -89,7 +89,7 @@ struct EnvironmentTests {
 
     @Test("default smtpTLSMode is starttls")
     func defaultSmtpTLSMode() {
-        #expect(Environment().smtpTLSMode == .starttls)
+        #expect(Environment.testingDefaults().smtpTLSMode == .starttls)
     }
 
     @Test("custom smtpTLSMode round-trips")
@@ -100,7 +100,7 @@ struct EnvironmentTests {
 
     @Test("default smtpTlsInsecure is false")
     func defaultSmtpTlsInsecure() {
-        #expect(Environment().smtpTlsInsecure == false)
+        #expect(Environment.testingDefaults().smtpTlsInsecure == false)
     }
 
     @Test("custom smtpTlsInsecure round-trips")

@@ -1,6 +1,10 @@
 // Logger.swift: JSON-structured unified logging — lock-based, zero String allocation, ISO 8601 ms-precision timestamps.
 
+#if os(Linux)
+import Glibc
+#else
 import Darwin
+#endif
 import Foundation
 
 enum Logger {

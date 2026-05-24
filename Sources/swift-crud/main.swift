@@ -1,9 +1,13 @@
 // main.swift: application entry point — wires up environment, database, email sender, routes, and starts the HTTP server.
 
 import Blackbird
-import Darwin
 import Foundation
 import NIO
+#if os(Linux)
+import Glibc
+#else
+import Darwin
+#endif
 
 /// Serial queue used to bridge C signal handlers into the async world.
 private let signalQueue = DispatchQueue(label: "swift-crud.signal")
@@ -43,7 +47,7 @@ func main() async throws {
 
     guard env.authSecret != "change-me" else {
         Logger.error("AUTH_SECRET environment variable must be set. Run `just keygen-cookie-secret` to generate one.")
-        Darwin.exit(1)
+        platformExit(1)
     }
 
     var dbOptions: Blackbird.Database.Options = []
@@ -78,7 +82,7 @@ func main() async throws {
             try await server.start()
         } catch {
             Logger.error("HTTP server stopped with error — \(error)")
-            Darwin.exit(1)
+            platformExit(1)
         }
     }
 
@@ -89,7 +93,7 @@ func main() async throws {
     }
     guard server.boundPort != nil else {
         Logger.error("Server did not bind to port \(env.port)")
-        Darwin.exit(1)
+        platformExit(1)
     }
 
     Logger.info("Server running on port \(env.port)")

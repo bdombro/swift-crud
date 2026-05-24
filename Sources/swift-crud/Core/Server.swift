@@ -1,10 +1,10 @@
-// Server.swift: wraps a SwiftNIO HTTP server (NIOTS/NIOTransportServices) with start/stop lifecycle and async connection handler based on NIOAsyncChannel.
+// Server.swift: wraps a POSIX SwiftNIO HTTP server with start/stop lifecycle and async connection handler based on NIOAsyncChannel.
 
 import Foundation
 import NIO
 import NIOCore
 import NIOHTTP1
-import NIOTransportServices
+import NIOPosix
 
 private typealias HTTPConnection = NIOAsyncChannel<HTTPServerRequestPart, HTTPServerResponsePart>
 
@@ -36,7 +36,7 @@ final class Server: @unchecked Sendable {
     /// Creates a server that will listen on `port` once `start()` or `startAndListen()` is called.
     init(port: UInt16) {
         self.port = port
-        self.group = NIOTSEventLoopGroup()
+        self.group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
     }
 
     /// Shuts down the event loop group if the server was not stopped explicitly.
@@ -97,21 +97,11 @@ final class Server: @unchecked Sendable {
 
     /// Internal bind helper — shared by both start modes.
     private func bind(host: String) async throws -> NIOAsyncChannel<HTTPConnection, Never> {
-        let serverChannel = try await NIOTSListenerBootstrap(group: group)
+        let serverChannel = try await ServerBootstrap(group: group)
             .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .bind(host: host, port: Int(port)) { channel in
                 channel.pipeline.configureHTTPServerPipeline(withErrorHandling: true).flatMapThrowing { _ in
-                    try NIOAsyncChannel<HTTPServerRequestPart, HTTPServerResponsePart>(
-                        wrappingChannelSynchronously: channel,
-                        configuration: .init(
-                            backPressureStrategy: NIOAsyncSequenceProducerBackPressureStrategies.HighLowWatermark(
-                                lowWatermark: 8, highWatermark: 16
-                            ),
-                            isOutboundHalfClosureEnabled: true,
-                            inboundType: HTTPServerRequestPart.self,
-                            outboundType: HTTPServerResponsePart.self
-                        )
-                    )
+                    try Self.makeHTTPAsyncChannel(wrapping: channel)
                 }
             }
         self.channel = serverChannel.channel
@@ -119,6 +109,21 @@ final class Server: @unchecked Sendable {
             boundPort = UInt16(address.port ?? Int(self.port))
         }
         return serverChannel
+    }
+
+    /// Wraps a child channel with the shared HTTP async configuration.
+    private static func makeHTTPAsyncChannel(wrapping channel: Channel) throws -> HTTPConnection {
+        try NIOAsyncChannel<HTTPServerRequestPart, HTTPServerResponsePart>(
+            wrappingChannelSynchronously: channel,
+            configuration: .init(
+                backPressureStrategy: NIOAsyncSequenceProducerBackPressureStrategies.HighLowWatermark(
+                    lowWatermark: 8, highWatermark: 16
+                ),
+                isOutboundHalfClosureEnabled: true,
+                inboundType: HTTPServerRequestPart.self,
+                outboundType: HTTPServerResponsePart.self
+            )
+        )
     }
 
     /// Graceful shutdown — stops accepting new connections, drains in-flight requests up to `timeout` seconds.
@@ -181,7 +186,7 @@ final class Server: @unchecked Sendable {
                     }
                     await handleRequest(
                         head: head,
-                        body: body.getData(at: 0, length: body.readableBytes) ?? Data(),
+                        body: Data(body.readableBytesView),
                         remoteAddress: remoteDesc,
                         outbound: outbound
                     )

@@ -56,8 +56,11 @@ private func loadDotEnv(path: String = ".env", overrides: [String: String]) -> [
 
 /// Central config sourced from environment variables with sensible defaults.
 struct Environment {
+    /// Default HTTP listen port when `PORT` is unset.
+    static let defaultPort: UInt16 = 8222
+
     // MARK: Server
-    /// Port the HTTP server binds to.  Default `8000`.
+    /// Port the HTTP server binds to.  Default `8222`.
     let port: UInt16
 
     /// Filesystem path for the SQLite database.  Default `db.sqlite` (CWD).
@@ -113,7 +116,7 @@ struct Environment {
             mergedEnv[key] ?? ""
         }
 
-        port = mergedEnv["PORT"].flatMap(UInt16.init) ?? 8000
+        port = mergedEnv["PORT"].flatMap(UInt16.init) ?? Self.defaultPort
         dbPath = mergedEnv["DB_PATH"] ?? "db.sqlite"
         dbDebug = mergedEnv["DB_DEBUG"].map { $0 == "true" || $0 == "1" } ?? false
 
@@ -140,9 +143,29 @@ struct Environment {
 
     // MARK: Init for testing (allows overriding specific values)
 
+    /// Documented defaults without reading process environment or `.env` (unit tests).
+    static func testingDefaults() -> Environment {
+        Environment(
+            port: Self.defaultPort,
+            dbPath: "db.sqlite",
+            dbDebug: false,
+            authSecret: "change-me",
+            cookieDomain: nil,
+            cookieSecure: true,
+            corsAllowedOrigins: [],
+            smtpHost: nil,
+            smtpPort: 587,
+            smtpUsername: nil,
+            smtpPassword: nil,
+            smtpFrom: nil,
+            smtpTLSMode: .starttls,
+            smtpTlsInsecure: false
+        )
+    }
+
     /// Builds config from explicit values; used by unit tests instead of `ProcessInfo` / `.env`.
     init(
-        port: UInt16 = 8000,
+        port: UInt16 = Environment.defaultPort,
         dbPath: String = "db.sqlite",
         dbDebug: Bool = false,
         authSecret: String = "change-me",

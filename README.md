@@ -39,14 +39,14 @@ brew install just
 # Build
 just build
 
-# Run (listens on port 8000 by default)
+# Run (listens on port 8222 by default)
 just run
 
 # Test
 just test
 ```
 
-Server starts on `http://127.0.0.1:8000` by default.
+Server starts on `http://127.0.0.1:8222` by default.
 
 ### Configuration
 
@@ -54,7 +54,7 @@ The server is configured via environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | `8000` | HTTP server port |
+| `PORT` | `8222` | HTTP server port |
 | `DB_PATH` | `db.sqlite` | SQLite database file path |
 | `DB_DEBUG` | — | Set to `true` or `1` to log every SQL query |
 | `AUTH_SECRET` | — | HMAC signing key for the `user_id` cookie. Set in production to prevent cookie forgery |
