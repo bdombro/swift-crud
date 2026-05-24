@@ -132,6 +132,18 @@ enum Logger {
         Self.log(message, level: .error)
     }
 
+    /// Writes a human-readable line to stderr and exits with status 1.
+    /// Use for startup failures before the async log flush loop is running.
+    static func fatal(_ message: String) -> Never {
+        var data = Data("swift-crud: ".utf8)
+        data.append(contentsOf: message.utf8)
+        data.append(0x0A)
+        data.withUnsafeBytes { ptr in
+            _ = platformWrite(platformStderr, ptr.baseAddress!, ptr.count)
+        }
+        platformExit(1)
+    }
+
     // MARK: General log (outputs NDJSON via queue+append)
 
     static func log(_ message: String, level: Level = .info) {

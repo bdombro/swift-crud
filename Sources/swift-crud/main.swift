@@ -41,8 +41,9 @@ func main() async throws {
     let env = Environment()
 
     guard env.authSecret != "change-me" else {
-        Logger.error("AUTH_SECRET environment variable must be set. Run `just keygen-cookie-secret` to generate one.")
-        platformExit(1)
+        Logger.fatal(
+            "AUTH_SECRET must be set (e.g. in .env). Run `just keygen-cookie-secret` to generate one."
+        )
     }
 
     var dbOptions: Blackbird.Database.Options = []
@@ -76,8 +77,7 @@ func main() async throws {
         do {
             try await server.start()
         } catch {
-            Logger.error("HTTP server stopped with error — \(error)")
-            platformExit(1)
+            Logger.fatal("HTTP server stopped with error — \(error)")
         }
     }
 
@@ -87,8 +87,7 @@ func main() async throws {
         bindWait += 1
     }
     guard server.boundPort != nil else {
-        Logger.error("Server did not bind to port \(env.port)")
-        platformExit(1)
+        Logger.fatal("Server did not bind to port \(env.port)")
     }
 
     Logger.info("Server running on port \(env.port)")
@@ -106,4 +105,8 @@ func main() async throws {
     Logger.info("Server stopped.")
 }
 
-try await main()
+do {
+    try await main()
+} catch {
+    Logger.fatal("Startup failed — \(error)")
+}

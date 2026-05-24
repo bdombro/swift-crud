@@ -13,6 +13,9 @@ build:
 build-debug:
     swift build
 
+deploy:
+  ssh contabo 'bash -lic "cd /www/wwwroot/toody.bzz.fm/backend && git pull && just build"'
+
 # Will set everything up for a clean repo
 init:
     just keygen-cookie-secret

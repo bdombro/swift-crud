@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Linux support (same POSIX NIO stack as macOS).
 
 ### Fixed
+- Startup failures (missing `AUTH_SECRET`, bind errors, etc.) print a line to stderr and exit with status 1 instead of exiting silently.
 - Linux build: use `swift-crypto` (`import Crypto`) for HMAC cookies and login code hashing on all platforms.
 - Linux build: generate login codes via `secureRandomUInt32()` (`/dev/urandom`) on all platforms.
 
