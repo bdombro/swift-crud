@@ -15,4 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Linux support (same POSIX NIO stack as macOS).
 
+### Fixed
+- Linux build: use `swift-crypto` (`import Crypto`) for HMAC cookies and login code hashing on all platforms.
+- Linux build: generate login codes via `secureRandomUInt32()` (`/dev/urandom`) on all platforms.
+
+### Changed
+- POSIX libc usage is centralized in `Platform.swift`; app code no longer branches on `CryptoKit` vs `Crypto` or macOS-only Security APIs.
+
 [Unreleased]: https://github.com/bdombro/swift-crud/compare/v0.4.0...HEAD

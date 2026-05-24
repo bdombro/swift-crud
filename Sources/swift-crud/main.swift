@@ -3,11 +3,6 @@
 import Blackbird
 import Foundation
 import NIO
-#if os(Linux)
-import Glibc
-#else
-import Darwin
-#endif
 
 /// Serial queue used to bridge C signal handlers into the async world.
 private let signalQueue = DispatchQueue(label: "swift-crud.signal")
@@ -17,12 +12,12 @@ private let signalQueue = DispatchQueue(label: "swift-crud.signal")
 private nonisolated(unsafe) var shutdownRequested = false
 
 // Installed at module init time (before main()). Can only set the global flag.
-signal(SIGTERM) { _ in
+platformSignal(SIGTERM) { _ in
     shutdownRequested = true
     signalQueue.async {}
 }
 
-signal(SIGINT) { _ in
+platformSignal(SIGINT) { _ in
     shutdownRequested = true
     signalQueue.async {}
 }

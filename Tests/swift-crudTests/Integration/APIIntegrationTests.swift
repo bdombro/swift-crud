@@ -3,7 +3,7 @@
 // Each test gets a fresh in-memory DB and a new server on port 0.
 
 import Blackbird
-import CryptoKit
+import Crypto
 import Foundation
 import Testing
 

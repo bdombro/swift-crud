@@ -1,6 +1,6 @@
 // AuthCookie.swift: HMAC-SHA256 helpers for signing and verifying the `user_id` session cookie.
 
-import CryptoKit
+import Crypto
 import Foundation
 
 /// Compares two byte buffers in constant time to avoid leaking HMAC validity via timing.

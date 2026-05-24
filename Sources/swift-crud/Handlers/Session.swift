@@ -1,7 +1,7 @@
 // Session.swift: authentication session handlers — send-code, login, logout, and get-session.
 
 import Blackbird
-import CryptoKit
+import Crypto
 import Foundation
 
 // MARK: - Request types
@@ -57,9 +57,7 @@ private let loginCodeLength = 8
 
 /// Draws a cryptographically random 8-digit code in `00000000`…`99999999`.
 private func generateLoginCode() -> String {
-    var value: UInt32 = 0
-    let status = SecRandomCopyBytes(kSecRandomDefault, MemoryLayout<UInt32>.size, &value)
-    precondition(status == errSecSuccess, "SecRandomCopyBytes failed")
+    let value = secureRandomUInt32()
     return String(format: "%0\(loginCodeLength)u", value % 100_000_000)
 }
 

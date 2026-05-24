@@ -1,10 +1,5 @@
 // Logger.swift: JSON-structured unified logging — lock-based, zero String allocation, ISO 8601 ms-precision timestamps.
 
-#if os(Linux)
-import Glibc
-#else
-import Darwin
-#endif
 import Foundation
 
 enum Logger {
@@ -60,13 +55,7 @@ enum Logger {
         let now = Date().timeIntervalSince1970
         let second = Int64(now)
         if second != Self.cachedTimestampSecond {
-            var t = time_t(second)
-            var tm = tm()
-            gmtime_r(&t, &tm)
-            let prefix = String(format: "%04d-%02d-%02dT%02d:%02d:%02d.",
-                                 tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-                                 tm.tm_hour, tm.tm_min, tm.tm_sec)
-            Self.cachedTimestampPrefix = Array(prefix.utf8)
+            Self.cachedTimestampPrefix = platformTimestampPrefix(unixSecond: second)
             Self.cachedTimestampSecond = second
         }
         let ms = Int((now - Double(second)) * 1000)
@@ -153,12 +142,12 @@ enum Logger {
             if level == .error {
                 Self.errorBuffer.append(buf)
                 if Self.errorBuffer.count >= Self.maxBufferSize {
-                    Self.flushBuffer(&Self.errorBuffer, to: STDERR_FILENO)
+                    Self.flushBuffer(&Self.errorBuffer, to: platformStderr)
                 }
             } else {
                 Self.infoBuffer.append(buf)
                 if Self.infoBuffer.count >= Self.maxBufferSize {
-                    Self.flushBuffer(&Self.infoBuffer, to: STDOUT_FILENO)
+                    Self.flushBuffer(&Self.infoBuffer, to: platformStdout)
                 }
             }
         }
@@ -174,7 +163,7 @@ enum Logger {
             appendJSONAccess(&buf, method: method, path: path, userId: userId, statusCode: statusCode, durationMs: durationMs, requestId: requestId)
             Self.accessBuffer.append(buf)
             if Self.accessBuffer.count >= Self.maxBufferSize {
-                Self.flushBuffer(&Self.accessBuffer, to: STDOUT_FILENO)
+                Self.flushBuffer(&Self.accessBuffer, to: platformStdout)
             }
         }
     }
@@ -184,14 +173,14 @@ enum Logger {
     private static func flushBuffer(_ buffer: inout Data, to fd: Int32) {
         guard !buffer.isEmpty else { return }
         buffer.withUnsafeBytes { ptr in
-            _ = write(fd, ptr.baseAddress, ptr.count)
+            _ = platformWrite(fd, ptr.baseAddress!, ptr.count)
         }
         buffer.removeAll(keepingCapacity: true)
     }
 
     private static func flushAll() {
-        Self.flushBuffer(&Self.infoBuffer, to: STDOUT_FILENO)
-        Self.flushBuffer(&Self.errorBuffer, to: STDERR_FILENO)
-        Self.flushBuffer(&Self.accessBuffer, to: STDOUT_FILENO)
+        Self.flushBuffer(&Self.infoBuffer, to: platformStdout)
+        Self.flushBuffer(&Self.errorBuffer, to: platformStderr)
+        Self.flushBuffer(&Self.accessBuffer, to: platformStdout)
     }
 }

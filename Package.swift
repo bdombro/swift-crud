@@ -7,10 +7,12 @@ let package = Package(
     name: "swift-crud",
     platforms: [
         .macOS(.v12),
+        .custom("linux", versionString: "1.0"),
     ],
 
     dependencies: [
-        .package(url: "https://github.com/bdombro/Blackbird-fast", from: "1.0.0"),
+        .package(url: "https://github.com/bdombro/Blackbird-fast", from: "1.0.1"),
+        .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.55.0"),
         .package(url: "https://github.com/apple/swift-nio-ssl.git", from: "2.25.0"),
     ],
@@ -19,6 +21,7 @@ let package = Package(
             name: "swift-crud",
             dependencies: [
                 .product(name: "Blackbird", package: "Blackbird-fast"),
+                .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "NIO", package: "swift-nio"),
                 .product(name: "NIOHTTP1", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
@@ -28,7 +31,8 @@ let package = Package(
         .testTarget(
             name: "swift-crudTests",
             dependencies: [
-                .target(name: "swift-crud")
+                .target(name: "swift-crud"),
+                .product(name: "Crypto", package: "swift-crypto"),
             ]
         ),
     ]
