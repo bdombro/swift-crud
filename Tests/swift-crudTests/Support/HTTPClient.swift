@@ -2,6 +2,9 @@
 // Manages cookies manually so each test controls auth state explicitly.
 
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Per-test HTTP helper that talks to an in-process server and manages auth cookies manually.
 struct HTTPClient {
