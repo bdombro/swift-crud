@@ -20,10 +20,10 @@ struct SessionCookieTests {
 
     @Test("COOKIE_DOMAIN adds Domain attribute")
     func withDomain() {
-        cookieDomain = "btec.cc"
+        cookieDomain = "toodyapp.com"
         cookieSecure = true
         let header = SessionCookie.setHeader(signedValue: "2.sig", expires: "Wed, 01 Jan 2099 00:00:00 GMT")
-        #expect(header.contains("Domain=btec.cc"))
+        #expect(header.contains("Domain=toodyapp.com"))
     }
 
     @Test("cookieSecure false omits Secure")

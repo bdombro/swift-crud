@@ -58,9 +58,9 @@ The server is configured via environment variables:
 | `DB_PATH` | `db.sqlite` | SQLite database file path |
 | `DB_DEBUG` | — | Set to `true` or `1` to log every SQL query |
 | `AUTH_SECRET` | — | HMAC signing key for the `user_id` cookie. Set in production to prevent cookie forgery |
-| `COOKIE_DOMAIN` | — | Parent domain for the session cookie (e.g. `btec.cc`) so `api.*` and `app.*` subdomains share auth. Omit for host-only cookies (local dev) |
+| `COOKIE_DOMAIN` | — | Parent domain for the session cookie (e.g. `toodyapp.com`) so `api.*` and `app.*` subdomains share auth. Omit for host-only cookies (local dev) |
 | `COOKIE_SECURE` | `true` | Set to `false` or `0` to omit `Secure` on session cookies (local HTTP testing only) |
-| `CORS_ALLOWED_ORIGINS` | — | Comma-separated browser origins allowed for credentialed CORS (e.g. `https://app.btec.cc`) |
+| `CORS_ALLOWED_ORIGINS` | — | Comma-separated browser origins allowed for credentialed CORS (e.g. `https://toodyapp.com`) |
 | `SMTP_HOST` | — | SMTP server hostname (omit to fall back to print-to-stdout) |
 | `SMTP_PORT` | `587` | SMTP server port |
 | `SMTP_USERNAME` | — | SMTP username |

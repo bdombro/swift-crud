@@ -27,19 +27,19 @@ struct CORSTests {
     @Test("allowedOrigin matches configured origin")
     func matchingOrigin() {
         defer { corsAllowedOrigins = [] }
-        corsAllowedOrigins = ["https://app.btec.cc"]
-        let req = request(method: .GET, origin: "https://app.btec.cc")
-        #expect(CORS.allowedOrigin(for: req) == "https://app.btec.cc")
+        corsAllowedOrigins = ["https://toodyapp.com"]
+        let req = request(method: .GET, origin: "https://toodyapp.com")
+        #expect(CORS.allowedOrigin(for: req) == "https://toodyapp.com")
     }
 
     @Test("preflight returns 204 with credentials headers")
     func preflight() {
         defer { corsAllowedOrigins = [] }
-        corsAllowedOrigins = ["https://app.btec.cc"]
-        let req = request(method: .OPTIONS, origin: "https://app.btec.cc")
+        corsAllowedOrigins = ["https://toodyapp.com"]
+        let req = request(method: .OPTIONS, origin: "https://toodyapp.com")
         let res = CORS.preflightResponse(for: req)
         #expect(res?.statusCode == .noContent)
-        #expect(res?.headers[HTTPHeader("Access-Control-Allow-Origin")] == "https://app.btec.cc")
+        #expect(res?.headers[HTTPHeader("Access-Control-Allow-Origin")] == "https://toodyapp.com")
         #expect(res?.headers[HTTPHeader("Access-Control-Allow-Credentials")] == "true")
         #expect(res?.headers[HTTPHeader("Access-Control-Allow-Methods")] != nil)
     }
@@ -47,11 +47,11 @@ struct CORSTests {
     @Test("apply adds CORS headers to handler response")
     func applyToResponse() {
         defer { corsAllowedOrigins = [] }
-        corsAllowedOrigins = ["https://app.btec.cc"]
-        let req = request(method: .GET, origin: "https://app.btec.cc")
+        corsAllowedOrigins = ["https://toodyapp.com"]
+        let req = request(method: .GET, origin: "https://toodyapp.com")
         var res = HTTPResponse.json(.ok, ["ok": true])
         CORS.apply(to: &res, request: req)
-        #expect(res.headers[HTTPHeader("Access-Control-Allow-Origin")] == "https://app.btec.cc")
+        #expect(res.headers[HTTPHeader("Access-Control-Allow-Origin")] == "https://toodyapp.com")
         #expect(res.headers[HTTPHeader("Access-Control-Allow-Credentials")] == "true")
     }
 }

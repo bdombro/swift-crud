@@ -28,6 +28,7 @@ systemd-upgrade:
     git pull
     just build
     just systemd-restart
+    just systemd-status
 
 # Start the installed systemd service.
 systemd-start:

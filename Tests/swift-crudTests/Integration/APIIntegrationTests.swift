@@ -229,13 +229,13 @@ final class APIIntegrationTests {
 
     @Test("login Set-Cookie includes Domain when cookieDomain is set")
     func loginCookieDomain() async throws {
-        cookieDomain = "btec.cc"
+        cookieDomain = "toodyapp.com"
         defer { cookieDomain = nil }
         try await seedUser(email: "domain@test.com")
         let body = try http.jsonBody(["email": "domain@test.com", "code": "12345678"])
         let (_, _, headers) = try await http.request("POST", "/api/session/login", body: body)
         let setCookie = headers.first { $0.key.lowercased() == "set-cookie" }?.value ?? ""
-        #expect(setCookie.contains("Domain=btec.cc"))
+        #expect(setCookie.contains("Domain=toodyapp.com"))
         #expect(setCookie.contains("SameSite=Lax"))
     }
 

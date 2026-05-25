@@ -74,12 +74,12 @@ struct EnvironmentTests {
     @Test("custom cookie and CORS settings round-trip")
     func customCookieAndCors() {
         let env = Environment(
-            cookieDomain: "btec.cc",
+            cookieDomain: "toodyapp.com",
             cookieSecure: false,
-            corsAllowedOrigins: ["https://app.btec.cc", "https://staging.btec.cc"])
-        #expect(env.cookieDomain == "btec.cc")
+            corsAllowedOrigins: ["https://toodyapp.com", "https://staging.toodyapp.com"])
+        #expect(env.cookieDomain == "toodyapp.com")
         #expect(env.cookieSecure == false)
-        #expect(env.corsAllowedOrigins == ["https://app.btec.cc", "https://staging.btec.cc"])
+        #expect(env.corsAllowedOrigins == ["https://toodyapp.com", "https://staging.toodyapp.com"])
     }
 
     @Test("custom smtpHost round-trips")
