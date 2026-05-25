@@ -16,6 +16,45 @@ build-debug:
 deploy:
   ssh contabo 'bash -lic "cd /www/wwwroot/toody.bzz.fm/backend && git pull && just build"'
 
+# systemd unit name (override: `SERVICE_NAME=my-api just systemd-start`)
+systemd_service := env_var_or_default("SERVICE_NAME", "swift-crud")
+
+# Install or refresh the systemd unit (Linux; run from project root).
+systemd-install: build
+    ./scripts/systemd-install.sh
+
+# Start the installed systemd service.
+systemd-start:
+    sudo systemctl start {{ systemd_service }}.service
+
+# Stop the installed systemd service.
+systemd-stop:
+    sudo systemctl stop {{ systemd_service }}.service
+
+# Restart the installed systemd service.
+systemd-restart:
+    sudo systemctl restart {{ systemd_service }}.service
+
+# Show systemd service status.
+systemd-status:
+    sudo systemctl status {{ systemd_service }}.service
+
+# Enable the service to start on boot.
+systemd-enable:
+    sudo systemctl enable {{ systemd_service }}.service
+
+# Disable the service from starting on boot.
+systemd-disable:
+    sudo systemctl disable {{ systemd_service }}.service
+
+# Reload systemd unit files after editing a `.service` file.
+systemd-daemon-reload:
+    sudo systemctl daemon-reload
+
+# Follow journal logs for the service.
+systemd-logs:
+    sudo journalctl -u {{ systemd_service }} -f
+
 # Will set everything up for a clean repo
 init:
     just keygen-cookie-secret

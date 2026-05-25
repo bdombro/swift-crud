@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - HTTP server uses POSIX NIO (`ServerBootstrap` / `MultiThreadedEventLoopGroup`) on all platforms; dropped NIO Transport Services.
 
 ### Added
+- `scripts/systemd-install.sh` installs a systemd unit with `WorkingDirectory` set to the install-time `$PWD`, `ExecStart` pointing at `.build/release/swift-crud`, and the service running as `www`.
+- `just systemd-*` recipes wrap the install script and common `systemctl` / `journalctl` commands (`SERVICE_NAME` overrides the unit name).
 - Optional `SMTP_FROM_NAME` for a display name on outgoing login-code emails (`From: "Name" <addr>`).
 - Linux support (same POSIX NIO stack as macOS).
 
