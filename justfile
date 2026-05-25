@@ -14,6 +14,60 @@ build-debug:
 deploy:
   ssh contabo 'bash -lc "cd /www/wwwroot/toodyapp.com/backend && git pull && just systemd-upgrade"'
 
+# Will set everything up for a clean repo
+init:
+    just keygen-cookie-secret
+
+# Generate a random cookie secret key and update the env.sh file
+keygen-cookie-secret:
+    #!/bin/bash
+    KEY="$(openssl rand -base64 32)"
+    sed -i '' "s|^AUTH_SECRET=.*|AUTH_SECRET=$KEY|" .env || echo "AUTH_SECRET=$KEY" >> .env
+
+# Kill any existing server running on port 8222
+kill:
+    lsof -ti :8222 | xargs kill -9 || true
+
+alias start := run
+# Run the built binary application
+run: build kill
+    .build/release/swift-crud
+
+# Run the build binary applicatin in debug mode
+run-debug: build-debug kill
+    .build/debug/swift-crud
+
+alias dev := run-dev
+# Run the application in dev mode
+run-dev: kill
+    swift run
+
+# Run unit tests (`SwiftCrudTests`). On macOS, XCTest needs the full Xcode app selected (`xcode-select`), not Command Line Tools only.
+test:
+    swift test
+
+# Build then run tests — quick pre-push check.
+ci: build test
+
+# Delete SwiftPM’s `.build` directory (forces a clean rebuild next time).
+clean:
+    rm -rf .build
+
+# Resolve and fetch package dependencies (updates `Package.resolved` when versions change).
+resolve:
+    swift package resolve
+
+# Describe the package graph (targets, products, dependencies).
+describe:
+    swift package describe
+
+
+
+########################################################
+# Systemd
+########################################################
+
+
 # systemd unit name (override: `SERVICE_NAME=my-api just systemd-start`)
 systemd_service := env_var_or_default("SERVICE_NAME", "swift-crud")
 
@@ -69,52 +123,12 @@ systemd-logs:
     @# sudo journalctl -u swift-crud --since today
     sudo journalctl -u {{ systemd_service }} -f
 
-# Will set everything up for a clean repo
-init:
-    just keygen-cookie-secret
 
-# Generate a random cookie secret key and update the env.sh file
-keygen-cookie-secret:
-    #!/bin/bash
-    KEY="$(openssl rand -base64 32)"
-    sed -i '' "s|^AUTH_SECRET=.*|AUTH_SECRET=$KEY|" .env || echo "AUTH_SECRET=$KEY" >> .env
 
-# Kill any existing server running on port 8222
-kill:
-    lsof -ti :8222 | xargs kill -9 || true
 
-alias start := run
-# Run the built binary application
-run: build kill
-    .build/release/swift-crud
-
-# Run the build binary applicatin in debug mode
-run-debug: build-debug kill
-    .build/debug/swift-crud
-
-alias dev := run-dev
-# Run the application in dev mode
-run-dev: kill
-    swift run
-
-# Run unit tests (`SwiftCrudTests`). On macOS, XCTest needs the full Xcode app selected (`xcode-select`), not Command Line Tools only.
-test:
-    swift test
-
-# Build then run tests — quick pre-push check.
-ci: build test
-
-# Delete SwiftPM’s `.build` directory (forces a clean rebuild next time).
-clean:
-    rm -rf .build
-
-# Resolve and fetch package dependencies (updates `Package.resolved` when versions change).
-resolve:
-    swift package resolve
-
-# Describe the package graph (targets, products, dependencies).
-describe:
-    swift package describe
+########################################################
+# Benchmarking
+########################################################
 
 benchmark-init:
     brew install hey

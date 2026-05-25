@@ -161,7 +161,7 @@ final class Server: @unchecked Sendable {
 
     /// Reads request parts from a connection, enforces the body size limit, and dispatches each request.
     private func handleHTTPConnection(_ connection: HTTPConnection) async throws {
-        let remoteDesc = connection.channel.remoteAddress.map { String(describing: $0) }
+        let peerAddress = connection.channel.remoteAddress
         try await connection.executeThenClose { inbound, outbound in
             var iterator = inbound.makeAsyncIterator()
             while let part = try await iterator.next() {
@@ -184,10 +184,11 @@ final class Server: @unchecked Sendable {
                         }
                         if case .end = bodyPart { break }
                     }
+                    let clientIP = ClientIP.resolve(peer: peerAddress, headers: head.headers)
                     await handleRequest(
                         head: head,
                         body: Data(body.readableBytesView),
-                        remoteAddress: remoteDesc,
+                        remoteAddress: clientIP,
                         outbound: outbound
                     )
                 case .body, .end:

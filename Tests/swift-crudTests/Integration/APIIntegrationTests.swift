@@ -157,6 +157,55 @@ final class APIIntegrationTests {
         let multiAt = try http.jsonBody(["email": "a@@b.com"])
         let (s2, _, _) = try await http.request("POST", "/api/session/send-code", body: multiAt)
         #expect(s2 == 401)
+
+        let plusBody = try http.jsonBody(["email": "user+tag@test.com"])
+        let (s3, _, _) = try await http.request("POST", "/api/session/send-code", body: plusBody)
+        #expect(s3 == 401)
+    }
+
+    @Test("POST /api/session/send-code normalizes email to lowercase")
+    func sendCodeNormalizesEmail() async throws {
+        let body = try http.jsonBody(["email": "Mixed@Test.COM"])
+        let (status, _, _) = try await http.request("POST", "/api/session/send-code", body: body)
+        #expect(status == 200)
+
+        let rows = try await testDb.query("SELECT email FROM users WHERE email = ?", "mixed@test.com")
+        #expect(rows.count == 1)
+        #expect(await mockEmail.lastCode(for: "mixed@test.com") != nil)
+    }
+
+    @Test("POST /api/session/send-code does not persist code when email send fails")
+    func sendCodeDoesNotPersistOnSendFailure() async throws {
+        emailSender = FailingMockEmailSender()
+        try await seedUser(email: "fail@test.com", code: "11111111")
+        try await testDb.query(
+            "UPDATE users SET codeCreatedAt = NULL, codeHash = NULL WHERE email = ?", "fail@test.com")
+
+        let body = try http.jsonBody(["email": "fail@test.com"])
+        let (status, _, _) = try await http.request("POST", "/api/session/send-code", body: body)
+        #expect(status == 500)
+
+        let user = try #require(try await User.read(from: testDb, sqlWhere: "email = ?", "fail@test.com").first)
+        #expect(user.codeHash == nil)
+        #expect(user.codeCreatedAt == nil)
+    }
+
+    @Test("POST /api/session/send-code uses X-Forwarded-For for rate limit when peer is loopback")
+    func sendCodeUsesForwardedIP() async throws {
+        await resetSendCodeRateLimitersForTesting()
+        for i in 0..<10 {
+            let email = "fwd\(i)@test.com"
+            let body = try http.jsonBody(["email": email])
+            let (status, _, _) = try await http.request(
+                "POST", "/api/session/send-code", body: body,
+                extraHeaders: ["X-Forwarded-For": "198.51.100.99"])
+            #expect(status == 200, "request \(i)")
+        }
+        let overflow = try http.jsonBody(["email": "fwd_overflow@test.com"])
+        let (lastStatus, _, _) = try await http.request(
+            "POST", "/api/session/send-code", body: overflow,
+            extraHeaders: ["X-Forwarded-For": "198.51.100.99"])
+        #expect(lastStatus == 429)
     }
 
     @Test("POST /api/session/send-code returns 429 after too many requests from the same IP")

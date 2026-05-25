@@ -24,7 +24,8 @@ struct HTTPClient {
         _ path: String,
         body: Data? = nil,
         cookie: String? = nil,
-        origin: String? = nil
+        origin: String? = nil,
+        extraHeaders: [String: String] = [:]
     ) async throws -> (statusCode: Int, data: Data, headers: [String: String]) {
         let url = URL(string: path, relativeTo: baseURL)!
         var req = URLRequest(url: url, timeoutInterval: 5)
@@ -32,6 +33,9 @@ struct HTTPClient {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let origin { req.setValue(origin, forHTTPHeaderField: "Origin") }
         if let cookie { req.setValue("user_id=\(cookie)", forHTTPHeaderField: "Cookie") }
+        for (name, value) in extraHeaders {
+            req.setValue(value, forHTTPHeaderField: name)
+        }
         req.httpBody = body
 
         let (data, response) = try await Self.session.data(for: req)

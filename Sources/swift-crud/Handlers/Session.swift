@@ -99,7 +99,11 @@ func getSessionHandler(req: HTTPRequest) async throws -> HTTPResponse {
 func loginHandler(req: HTTPRequest) async throws -> HTTPResponse {
     let body = try await req.decode(as: LoginRequest.self)
 
-    let user = try await User.read(from: db, sqlWhere: "email = ?", body.email).first
+    guard let email = normalizeEmail(body.email) else {
+        return HTTPResponse.apiError(.unauthorized, .invalidEmail)
+    }
+
+    let user = try await User.read(from: db, sqlWhere: "email = ?", email).first
 
     guard let code = normalizeLoginCode(body.code),
         let codeData = code.data(using: .utf8)
@@ -157,11 +161,7 @@ func logoutHandler(req: HTTPRequest) async throws -> HTTPResponse {
 func sendCodeHandler(req: HTTPRequest) async throws -> HTTPResponse {
     let body = try await req.decode(as: SendCodeRequest.self)
 
-    guard body.email.contains("@"),
-        body.email.count >= 5,
-        body.email.count <= 254,
-        body.email.split(separator: "@", omittingEmptySubsequences: false).count == 2
-    else {
+    guard let email = normalizeEmail(body.email) else {
         return HTTPResponse.apiError(.unauthorized, .invalidEmail)
     }
 
@@ -173,21 +173,25 @@ func sendCodeHandler(req: HTTPRequest) async throws -> HTTPResponse {
     }
 
     let rateLimited = await sendCodeRateLimiter.checkAndRecord(
-        key: body.email, maxRequests: 5, windowSeconds: 60)
+        key: email, maxRequests: 5, windowSeconds: 60)
     guard !rateLimited else {
         return HTTPResponse.apiError(.tooManyRequests, .sendCodeEmailRateLimited)
+    }
+
+    if let user = try await User.read(from: db, sqlWhere: "email = ?", email).first {
+        let twoMinsAgo = Date().addingTimeInterval(-120)
+        if let created = user.codeCreatedAt, created > twoMinsAgo {
+            return HTTPResponse.apiError(.tooManyRequests, .sendCodeCooldown)
+        }
     }
 
     let code = generateLoginCode()
     let codeData = code.data(using: .utf8)!
     let hash = SHA256.hash(data: codeData).compactMap { String(format: "%02x", $0) }.joined()
 
-    if let user = try await User.read(from: db, sqlWhere: "email = ?", body.email).first {
-        let twoMinsAgo = Date().addingTimeInterval(-120)
-        if let created = user.codeCreatedAt, created > twoMinsAgo {
-            return HTTPResponse.apiError(.tooManyRequests, .sendCodeCooldown)
-        }
+    try await emailSender.send(code: code, to: email)
 
+    if let user = try await User.read(from: db, sqlWhere: "email = ?", email).first {
         var u = user
         u.codeAttempts = 0
         u.codeCreatedAt = Date()
@@ -196,10 +200,9 @@ func sendCodeHandler(req: HTTPRequest) async throws -> HTTPResponse {
     } else {
         _ = try await db.query(
             "INSERT INTO users (codeAttempts, codeCreatedAt, codeHash, createdAt, email) VALUES (0, ?, ?, ?, ?)",
-            Date(), hash, Date(), body.email)
+            Date(), hash, Date(), email)
     }
 
-    try await emailSender.send(code: code, to: body.email)
     return HTTPResponse.json(.ok, ["message": "success"])
 }
 

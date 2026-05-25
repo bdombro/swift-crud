@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- `POST /api/session/send-code` persists the login code only after SMTP succeeds; email is normalized (trim, lowercase, no `+` aliases); rate limits use `X-Forwarded-For` when the TCP peer is loopback.
+- `POST /api/session/login` uses the same email normalization as send-code.
 - `scripts/systemd-install.sh` hardens the systemd unit (start limits, sandboxing, journal logging), checks the release binary exists before install, and supports `--uninstall` / `--reinstall`.
 - Default HTTP port is `8222` (was `8000`).
 - Login codes are 8-digit decimal numbers (zero-padded); docs and email copy updated accordingly.

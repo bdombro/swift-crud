@@ -23,3 +23,12 @@ actor MockEmailSender: EmailSender {
         sent = []
     }
 }
+
+/// Always fails `send` — for tests that SMTP errors must not persist login codes.
+struct FailingMockEmailSender: EmailSender {
+    struct SendFailed: Error {}
+
+    func send(code: String, to email: String) async throws {
+        throw SendFailed()
+    }
+}
