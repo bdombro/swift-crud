@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - `POST /api/session/send-code` persists the login code only after SMTP succeeds; email is normalized (trim, lowercase, no `+` aliases); rate limits use `X-Forwarded-For` when the TCP peer is loopback.
+- SMTP email delivery now keeps a durable authenticated connection open, reuses it across `send-code` requests, resets the session between messages, and closes it gracefully on shutdown.
 - `POST /api/session/login` uses the same email normalization as send-code.
 - `scripts/systemd-install.sh` hardens the systemd unit (start limits, sandboxing, journal logging), checks the release binary exists before install, and supports `--uninstall` / `--reinstall`.
 - Default HTTP port is `8222` (was `8000`).

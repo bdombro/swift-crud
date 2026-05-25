@@ -1,6 +1,7 @@
-// EmailSender.swift: email abstraction for login codes — protocol, stdout fallback, factory from Environment.
+// EmailSender.swift: email abstraction for login codes — protocol, stdout fallback, and SMTP factory wiring.
 
 import Foundation
+import NIO
 
 // MARK: - SMTP errors
 
@@ -65,13 +66,9 @@ extension EmailSender where Self == PrintEmailSender {
 }
 
 extension EmailSender where Self == SMTPEmailSender {
-    static func smtp(host: String, port: UInt16, username: String, password: String, from: String,
-                     fromName: String? = nil, tlsMode: SMTPTLSMode = .starttls, tlsInsecure: Bool = false,
-                     timeoutSeconds: Int = defaultSMTPTimeoutSeconds,
-                     tlsServerName: String? = nil) -> SMTPEmailSender {
-        SMTPEmailSender(host: host, port: port, username: username, password: password,
-                        from: from, fromName: fromName, tlsMode: tlsMode, tlsInsecure: tlsInsecure,
-                        timeoutSeconds: timeoutSeconds, tlsServerName: tlsServerName)
+    static func smtp(config: SMTPConnectionConfig, group: EventLoopGroup, ownsGroup: Bool, from: String,
+                     fromName: String? = nil) -> SMTPEmailSender {
+        SMTPEmailSender(config: config, group: group, ownsGroup: ownsGroup, from: from, fromName: fromName)
     }
 }
 
@@ -84,8 +81,16 @@ func makeEmailSender(from env: Environment) -> EmailSender {
     else {
         return .printFallback
     }
-    return .smtp(host: host, port: env.smtpPort, username: username, password: password, from: from,
-                 fromName: env.smtpFromName, tlsMode: env.smtpTLSMode, tlsInsecure: env.smtpTlsInsecure,
-                 timeoutSeconds: env.smtpTimeoutSeconds,
-                 tlsServerName: env.smtpTLSServerName)
+    let config = SMTPConnectionConfig(
+        host: host,
+        port: env.smtpPort,
+        username: username,
+        password: password,
+        tlsMode: env.smtpTLSMode,
+        tlsInsecure: env.smtpTlsInsecure,
+        timeoutSeconds: env.smtpTimeoutSeconds,
+        tlsServerName: env.smtpTLSServerName)
+    let group = smtpEventLoopGroup ?? MultiThreadedEventLoopGroup(numberOfThreads: 1)
+    let ownsGroup = smtpEventLoopGroup == nil
+    return .smtp(config: config, group: group, ownsGroup: ownsGroup, from: from, fromName: env.smtpFromName)
 }

@@ -56,10 +56,10 @@ func main() async throws {
     try await User.resolveSchema(in: database)
     try await Post.resolveSchema(in: database)
 
-    let sender = makeEmailSender(from: env)
-    if sender is SMTPEmailSender {
+    if env.smtpHost != nil, env.smtpUsername != nil, env.smtpPassword != nil, env.smtpFrom != nil {
         smtpEventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
     }
+    let sender = makeEmailSender(from: env)
     activeAuthSecret = env.authSecret
     cookieDomain = env.cookieDomain
     cookieSecure = env.cookieSecure
@@ -98,6 +98,9 @@ func main() async throws {
 
     await server.stop()
     Logger.shutdown()
+    if let smtp = emailSender as? SMTPEmailSender {
+        await smtp.shutdown()
+    }
     if let smtpGroup = smtpEventLoopGroup {
         try? await smtpGroup.shutdownGracefully()
         smtpEventLoopGroup = nil
