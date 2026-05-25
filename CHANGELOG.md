@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- `scripts/systemd-install.sh` hardens the systemd unit (start limits, sandboxing, journal logging), checks the release binary exists before install, and supports `--uninstall` / `--reinstall`.
 - Default HTTP port is `8222` (was `8000`).
 - Login codes are 8-digit decimal numbers (zero-padded); docs and email copy updated accordingly.
 - HTTP server uses POSIX NIO (`ServerBootstrap` / `MultiThreadedEventLoopGroup`) on all platforms; dropped NIO Transport Services.

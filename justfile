@@ -21,6 +21,14 @@ systemd_service := env_var_or_default("SERVICE_NAME", "swift-crud")
 systemd-install:
     ./scripts/systemd-install.sh
 
+# Reinstall the systemd unit (Linux; run from project root).
+systemd-reinstall:
+    ./scripts/systemd-install.sh --reinstall
+
+# Uninstall the systemd unit (Linux; run from project root).
+systemd-uninstall:
+    ./scripts/systemd-install.sh --uninstall
+
 # Pulls latest, rebuilds, and restarts the systemd service.
 systemd-upgrade:
     just build
