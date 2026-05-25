@@ -65,6 +65,8 @@ systemd-daemon-reload:
 
 # Follow journal logs for the service.
 systemd-logs:
+    @# sudo journalctl -u swift-crud -n 100      # last 100 lines
+    @# sudo journalctl -u swift-crud --since today
     sudo journalctl -u {{ systemd_service }} -f
 
 # Will set everything up for a clean repo
