@@ -11,7 +11,9 @@ build:
 build-debug:
     swift build
 
+# Deploy the application to the production server
 deploy:
+  git push
   ssh contabo 'bash -lc "cd /www/wwwroot/toodyapp.com/backend && git pull && just systemd-upgrade"'
 
 # Will set everything up for a clean repo
