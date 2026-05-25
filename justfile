@@ -7,21 +7,27 @@ _:
 
 # Compile everything in release mode (optimized binaries under `.build/release/`).
 build:
-    swift build -c release
+    swift build -c release --static-swift-stdlib
 
 # Compile the library and example executables (debug).
 build-debug:
     swift build
 
 deploy:
-  ssh contabo 'bash -lic "cd /www/wwwroot/toody.bzz.fm/backend && git pull && just build"'
+  ssh contabo 'bash -lic "cd /www/wwwroot/toodyapp.com/backend && git pull && just systemd-upgrade"'
 
 # systemd unit name (override: `SERVICE_NAME=my-api just systemd-start`)
 systemd_service := env_var_or_default("SERVICE_NAME", "swift-crud")
 
 # Install or refresh the systemd unit (Linux; run from project root).
-systemd-install: build
+systemd-install:
     ./scripts/systemd-install.sh
+
+# Pulls latest, rebuilds, and restarts the systemd service.
+systemd-upgrade:
+    git pull
+    just build
+    just systemd-restart
 
 # Start the installed systemd service.
 systemd-start:
