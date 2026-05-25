@@ -1,5 +1,3 @@
-set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
-
 # List all recipes (default when you run `just` with no arguments).
 _:
     @just --list
@@ -14,7 +12,7 @@ build-debug:
     swift build
 
 deploy:
-  ssh contabo 'bash -lic "cd /www/wwwroot/toodyapp.com/backend && git pull && just systemd-upgrade"'
+  ssh contabo 'bash -lc "cd /www/wwwroot/toodyapp.com/backend && git pull && just systemd-upgrade"'
 
 # systemd unit name (override: `SERVICE_NAME=my-api just systemd-start`)
 systemd_service := env_var_or_default("SERVICE_NAME", "swift-crud")
@@ -25,7 +23,6 @@ systemd-install:
 
 # Pulls latest, rebuilds, and restarts the systemd service.
 systemd-upgrade:
-    git pull
     just build
     just systemd-restart
     just systemd-status
