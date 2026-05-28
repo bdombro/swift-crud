@@ -11,7 +11,7 @@ struct APIErrorTests {
     func encodesBody() throws {
         let response = HTTPResponse.apiError(.unauthorized, .invalidEmail)
         let body = try JSONDecoder().decode(APIErrorBody.self, from: response.body)
-        #expect(body.message == "invalid email")
+        #expect(body.message == "Invalid email")
         #expect(body.code == 104)
     }
 

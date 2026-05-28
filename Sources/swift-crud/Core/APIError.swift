@@ -41,26 +41,26 @@ enum APIErrorCode: Int {
     /// Default English message when the handler does not override the text.
     var defaultMessage: String {
         switch self {
-        case .unauthorized: return "unauthorized"
-        case .invalidCodeEncoding: return "invalid login code format"
-        case .invalidEmailOrPassword: return "invalid email or password"
-        case .invalidEmail: return "invalid email"
+        case .unauthorized: return "Unauthorized"
+        case .invalidCodeEncoding: return "Invalid login code format"
+        case .invalidEmailOrPassword: return "Invalid email or passcode"
+        case .invalidEmail: return "Invalid email"
         case .sendCodeIPRateLimited:
             return "Too many code requests from this network. Try again later."
         case .sendCodeEmailRateLimited: return "Too many code requests. Try again later."
         case .sendCodeCooldown: return "Wait 2 minutes after requesting a code to try again."
-        case .postContentTooLong: return "content too long"
-        case .postVariantTooLong: return "variant too long"
-        case .invalidPostId: return "invalid post id"
+        case .postContentTooLong: return "Content too long"
+        case .postVariantTooLong: return "Variant too long"
+        case .invalidPostId: return "Invalid post id"
         case .postNotFound: return "Post not found"
-        case .invalidAfterCursor: return "invalid after cursor"
-        case .missingPostIdParameter: return "missing id parameter"
+        case .invalidAfterCursor: return "Invalid after cursor"
+        case .missingPostIdParameter: return "Missing id parameter"
         case .postNotFoundOrUnauthorized: return "Post not found or unauthorized"
-        case .invalidBulkPostId: return "invalid id format"
-        case .databaseUnavailable: return "database unavailable"
+        case .invalidBulkPostId: return "Invalid id format"
+        case .databaseUnavailable: return "Database unavailable"
         case .routeNotFound: return "Not Found"
         case .requestBodyTooLarge: return "Request body too large"
-        case .internalServerError: return "internal server error"
+        case .internalServerError: return "Internal server error"
         }
     }
 }

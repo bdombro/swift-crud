@@ -116,7 +116,7 @@ final class APIIntegrationTests {
         #expect(status == 401)
         let err = try JSONDecoder().decode(APIErrorBody.self, from: data)
         #expect(err.code == 101)
-        #expect(err.message == "unauthorized")
+        #expect(err.message == "Unauthorized")
     }
 
     @Test("POST /api/session/send-code creates a new user and sends a code")
