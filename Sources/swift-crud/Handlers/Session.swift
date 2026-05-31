@@ -18,6 +18,11 @@ struct LoginRequest: Codable {
     var code: String
 }
 
+/// Response body for a successful login containing the authenticated user's database ID.
+struct LoginResponse: Codable {
+    var userId: Int
+}
+
 // MARK: - Rate limiter for send-code
 
 private actor SendCodeRateLimiter {
@@ -142,7 +147,8 @@ func loginHandler(req: HTTPRequest) async throws -> HTTPResponse {
     u.codeHash = nil
     try await u.write(to: db)
 
-    var res = HTTPResponse.json(.ok, ["message": "success"])
+    let responseBody = LoginResponse(userId: user.id)
+    var res = HTTPResponse.json(.ok, responseBody)
     let farFuture = "Wed, 01 Jan 2099 00:00:00 GMT"
     let signed = AuthCookie.setCookie(userId: user.id, secret: activeAuthSecret)
     res.headers.addValue(SessionCookie.setHeader(signedValue: signed, expires: farFuture), for: HTTPHeader("Set-Cookie"))

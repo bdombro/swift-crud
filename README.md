@@ -127,8 +127,15 @@ Exchange a code for a session cookie.
 
 | Status | Meaning |
 |--------|---------|
-| `200` | Authenticated — `Set-Cookie: user_id=<id>.<sig>` header returned |
+| `200` | Authenticated — `Set-Cookie: user_id=<id>.<sig>` header returned and `userId` in JSON body |
 | `401` | Invalid email, code, or code expired (>10 min / max 3 attempts) |
+
+**Response `200`:**
+```json
+{
+  "userId": 1
+}
+```
 
 **Notes:**
 - `code` must be numeric (up to 8 digits); values shorter than 8 digits are zero-padded before verification.

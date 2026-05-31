@@ -230,12 +230,19 @@ final class APIIntegrationTests {
         #expect(http.extractCookie(from: headers, name: "user_id") != nil)
     }
 
-    @Test("POST /api/session/login returns HMAC-signed cookie")
+    @Test("POST /api/session/login returns HMAC-signed cookie and userId")
     func loginHappyPath() async throws {
         let userId = try await seedUser(email: "login@test.com", code: "12345678")
-        let cookie = try await login(email: "login@test.com", code: "12345678")
+        let body = try http.jsonBody(["email": "login@test.com", "code": "12345678"])
+        let (status, data, headers) = try await http.request("POST", "/api/session/login", body: body)
+        #expect(status == 200)
+
+        // Verify JSON response body has correct userId
+        let loginResponse = try http.decode(data, as: LoginResponse.self)
+        #expect(loginResponse.userId == userId)
 
         // Cookie is HMAC-signed: "userId.base64sig"
+        let cookie = try #require(http.extractCookie(from: headers, name: "user_id"))
         let parts = cookie.split(separator: ".")
         #expect(parts.count == 2)
         #expect(Int(parts[0]) == userId)
