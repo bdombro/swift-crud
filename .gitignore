@@ -1,5 +1,6 @@
 .DS_Store
 /.build/
+/swift-crud-linux
 /Packages/
 /*.xcodeproj
 xcuserdata/

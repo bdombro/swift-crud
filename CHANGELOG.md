@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Deploy process rewritten to pre-compile the app locally for `linux/amd64` using Docker (`swift:6.3-noble`) and copy the pre-built binary to the server using SCP and atomic SSH replacement instead of Git pushing and server-side compilation.
 - `POST /api/session/send-code` persists the login code only after SMTP succeeds; email is normalized (trim, lowercase, no `+` aliases); rate limits use `X-Forwarded-For` when the TCP peer is loopback.
 - SMTP email delivery now keeps a durable authenticated connection open, reuses it across `send-code` requests, resets the session between messages, and closes it gracefully on shutdown.
 - `POST /api/session/login` uses the same email normalization as send-code, and its successful JSON response body now returns the authenticated user's string UUID `userId` (e.g. `{"userId": "<uuid>"}`) instead of a static `{"message": "success"}` payload.
@@ -17,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - HTTP server uses POSIX NIO (`ServerBootstrap` / `MultiThreadedEventLoopGroup`) on all platforms; dropped NIO Transport Services.
 
 ### Added
+- `build-linux` recipe in `justfile` to compile a production-ready statically linked Linux `amd64` binary inside a Docker container.
 - `scripts/systemd-install.sh` installs a systemd unit with `WorkingDirectory` set to the install-time `$PWD`, `ExecStart` pointing at `.build/release/swift-crud`, and the service running as `www`.
 - `just systemd-*` recipes wrap the install script and common `systemctl` / `journalctl` commands (`SERVICE_NAME` overrides the unit name).
 - Optional `SMTP_FROM_NAME` for a display name on outgoing login-code emails (`From: "Name" <addr>`).

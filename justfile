@@ -11,10 +11,31 @@ build:
 build-debug:
     swift build
 
-# Deploy the application to the production server
-deploy:
-  git push
-  ssh contabo 'bash -lc "cd /www/wwwroot/toodyapp.com/backend && git pull && just systemd-upgrade"'
+# Build the application inside a Linux x86_64 Docker container
+build-linux:
+    # 1. Inspect/pull image
+    docker image inspect swift:6.3-noble >/dev/null 2>&1 || docker pull --platform linux/amd64 swift:6.3-noble
+    
+    # 2. Compile natively using a named Docker volume for .build-linux, then copy the final binary out
+    docker run --rm --platform linux/amd64 \
+      -v "$(pwd)":/workspace \
+      -v swift-crud-build-cache:/workspace/.build-linux \
+      -w /workspace \
+      swift:6.3-noble \
+      bash -c " \
+        apt-get update && \
+        apt-get install -y libsqlite3-dev && \
+        swift build -c release --static-swift-stdlib --build-path .build-linux && \
+        cp .build-linux/release/swift-crud ./swift-crud-linux \
+      "
+
+
+
+# Deploy the pre-compiled Linux binary to the production server via SCP and restart in aaPanel
+deploy: build-linux
+    # Copy Linux binary to production server
+    rsync -azP ./swift-crud-linux contabo:/www/wwwroot/toodyapp.com/backend/swift-crud
+    ssh contabo "~/.local/bin/aapanel_goproject_restart.py toodyapp_backend"
 
 # Will set everything up for a clean repo
 init:
