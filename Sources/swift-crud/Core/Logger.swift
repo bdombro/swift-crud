@@ -21,17 +21,15 @@ enum Logger {
     private static let maxBufferSize = 32768
     private static let flushIntervalMs: Int = 100
 
-    // MARK: Timestamp cache (second-level prefix, ms appended per line)
-    private nonisolated(unsafe) static var cachedTimestampPrefix: [UInt8] = []
-    private nonisolated(unsafe) static var cachedTimestampSecond: Int64 = 0
-
     // MARK: Setup / shutdown
 
-    static func setup() {
+    static func setup(env: Environment) {
         Self.logQueue = DispatchQueue(label: "swift-crud.log", qos: .utility)
         Self.infoBuffer.reserveCapacity(Self.maxBufferSize)
         Self.errorBuffer.reserveCapacity(Self.maxBufferSize)
         Self.accessBuffer.reserveCapacity(Self.maxBufferSize)
+
+        OpenObserve.setup(env: env)
 
         let timer = DispatchSource.makeTimerSource(queue: Self.logQueue)
         timer.schedule(deadline: .now(), repeating: .milliseconds(Self.flushIntervalMs))
@@ -47,21 +45,6 @@ enum Logger {
         Self.flushTimer = nil
         Self.flushAll()
         Self.logQueue = nil
-    }
-
-    // MARK: Timestamp formatting (ISO 8601 with ms, cheap prefix cache)
-
-    private static func cachedTimestampBytes() -> [UInt8] {
-        let now = Date().timeIntervalSince1970
-        let second = Int64(now)
-        if second != Self.cachedTimestampSecond {
-            Self.cachedTimestampPrefix = platformTimestampPrefix(unixSecond: second)
-            Self.cachedTimestampSecond = second
-        }
-        let ms = Int((now - Double(second)) * 1000)
-        var result = Self.cachedTimestampPrefix
-        result.append(contentsOf: String(format: "%03dZ", ms).utf8)
-        return result
     }
 
     // MARK: JSON escaping (O(n), reserveCapacity to avoid reallocation)
@@ -87,10 +70,10 @@ enum Logger {
     // MARK: JSON building (no String allocation)
 
     private static func appendJSONLog(_ data: inout Data, message: String, level: Level, requestId: String? = nil) {
-        let ts = Self.cachedTimestampBytes()
-        data.append(contentsOf: [0x7B, 0x22, 0x74, 0x73, 0x22, 0x3A, 0x22])
-        data.append(contentsOf: ts)
-        data.append(contentsOf: [0x22, 0x2C, 0x22, 0x6C, 0x76, 0x6C, 0x22, 0x3A, 0x22])
+        let ts = Int64(Date().timeIntervalSince1970 * 1_000_000)
+        data.append(contentsOf: [0x7B, 0x22, 0x5F, 0x74, 0x69, 0x6D, 0x65, 0x73, 0x74, 0x61, 0x6D, 0x70, 0x22, 0x3A])
+        data.append(contentsOf: String(ts).utf8)
+        data.append(contentsOf: [0x2C, 0x22, 0x6C, 0x76, 0x6C, 0x22, 0x3A, 0x22])
         data.append(contentsOf: level.rawValue.utf8)
         data.append(contentsOf: [0x22, 0x2C, 0x22, 0x6D, 0x73, 0x67, 0x22, 0x3A, 0x22])
         data.append(contentsOf: Self.jsonEscaped(message))
@@ -101,11 +84,11 @@ enum Logger {
         data.append(contentsOf: [0x22, 0x7D, 0x0A])
     }
 
-    private static func appendJSONAccess(_ data: inout Data, method: String, path: String, userId: String, statusCode: Int, durationMs: Int, requestId: String? = nil) {
-        let ts = Self.cachedTimestampBytes()
-        data.append(contentsOf: [0x7B, 0x22, 0x74, 0x73, 0x22, 0x3A, 0x22])
-        data.append(contentsOf: ts)
-        data.append(contentsOf: [0x22, 0x2C, 0x22, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73, 0x22, 0x3A])
+    private static func appendJSONAccess(_ data: inout Data, method: String, path: String, userId: String, statusCode: Int, clientIP: String, durationMs: Int, requestId: String? = nil) {
+        let ts = Int64(Date().timeIntervalSince1970 * 1_000_000)
+        data.append(contentsOf: [0x7B, 0x22, 0x5F, 0x74, 0x69, 0x6D, 0x65, 0x73, 0x74, 0x61, 0x6D, 0x70, 0x22, 0x3A])
+        data.append(contentsOf: String(ts).utf8)
+        data.append(contentsOf: [0x2C, 0x22, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73, 0x22, 0x3A])
         data.append(contentsOf: String(statusCode).utf8)
         data.append(contentsOf: [0x2C, 0x22, 0x6D, 0x65, 0x74, 0x68, 0x6F, 0x64, 0x22, 0x3A, 0x22])
         data.append(contentsOf: method.utf8)
@@ -113,6 +96,8 @@ enum Logger {
         data.append(contentsOf: Self.jsonEscaped(path))
         data.append(contentsOf: [0x22, 0x2C, 0x22, 0x75, 0x73, 0x65, 0x72, 0x22, 0x3A, 0x22])
         data.append(contentsOf: userId.utf8)
+        data.append(contentsOf: [0x22, 0x2C, 0x22, 0x69, 0x70, 0x22, 0x3A, 0x22])
+        data.append(contentsOf: clientIP.utf8)
         if let rid = requestId {
             data.append(contentsOf: [0x22, 0x2C, 0x22, 0x72, 0x65, 0x71, 0x22, 0x3A, 0x22])
             data.append(contentsOf: rid.utf8)
@@ -167,12 +152,12 @@ enum Logger {
 
     // MARK: Access log
 
-    static func access(start: Date, method: String, path: String, userId: String, statusCode: Int, requestId: String? = nil) {
+    static func access(start: Date, method: String, path: String, userId: String, statusCode: Int, clientIP: String, requestId: String? = nil) {
         let durationMs = Int(Date().timeIntervalSince(start) * 1000)
         let queue = Self.logQueue ?? DispatchQueue.global(qos: .utility)
         queue.async {
             var buf = Data()
-            appendJSONAccess(&buf, method: method, path: path, userId: userId, statusCode: statusCode, durationMs: durationMs, requestId: requestId)
+            appendJSONAccess(&buf, method: method, path: path, userId: userId, statusCode: statusCode, clientIP: clientIP, durationMs: durationMs, requestId: requestId)
             Self.accessBuffer.append(buf)
             if Self.accessBuffer.count >= Self.maxBufferSize {
                 Self.flushBuffer(&Self.accessBuffer, to: platformStdout)
@@ -187,6 +172,7 @@ enum Logger {
         buffer.withUnsafeBytes { ptr in
             _ = platformWrite(fd, ptr.baseAddress!, ptr.count)
         }
+        OpenObserve.ship(buffer)
         buffer.removeAll(keepingCapacity: true)
     }
 

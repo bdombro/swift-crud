@@ -113,6 +113,16 @@ struct Environment {
     /// TLS SNI / certificate hostname when `SMTP_HOST` is not a valid DNS name (e.g. `_dc-mx.*` MX records).
     let smtpTLSServerName: String?
 
+    // MARK: OpenObserve
+    /// OpenObserve JSON ingestion endpoint URL. If nil, direct ingestion is skipped.
+    let openobserveURL: String?
+
+    /// OpenObserve ingestion username.
+    let openobserveUser: String?
+
+    /// OpenObserve ingestion password.
+    let openobservePass: String?
+
     // MARK: Init from real environment
 
     /// Loads configuration from process environment, then `.env` (process vars win on conflict).
@@ -151,6 +161,10 @@ struct Environment {
         smtpTlsInsecure = mergedEnv["SMTP_TLS_INSECURE"].map { $0 == "true" || $0 == "1" } ?? false
         smtpTimeoutSeconds = mergedEnv["SMTP_TIMEOUT_SECONDS"].flatMap(Int.init) ?? defaultSMTPTimeoutSeconds
         smtpTLSServerName = mergedEnv["SMTP_TLS_SERVERNAME"].flatMap { $0.isEmpty ? nil : $0 }
+
+        openobserveURL = mergedEnv["OPENOBSERVE_URL"].flatMap { $0.isEmpty ? nil : $0 }
+        openobserveUser = mergedEnv["OPENOBSERVE_USER"].flatMap { $0.isEmpty ? nil : $0 }
+        openobservePass = mergedEnv["OPENOBSERVE_PASS"].flatMap { $0.isEmpty ? nil : $0 }
     }
 
     // MARK: Init for testing (allows overriding specific values)
@@ -174,7 +188,10 @@ struct Environment {
             smtpTLSMode: .starttls,
             smtpTlsInsecure: false,
             smtpTimeoutSeconds: defaultSMTPTimeoutSeconds,
-            smtpTLSServerName: nil
+            smtpTLSServerName: nil,
+            openobserveURL: nil,
+            openobserveUser: nil,
+            openobservePass: nil
         )
     }
 
@@ -196,7 +213,10 @@ struct Environment {
         smtpTLSMode: SMTPTLSMode = .starttls,
         smtpTlsInsecure: Bool = false,
         smtpTimeoutSeconds: Int = defaultSMTPTimeoutSeconds,
-        smtpTLSServerName: String? = nil
+        smtpTLSServerName: String? = nil,
+        openobserveURL: String? = nil,
+        openobserveUser: String? = nil,
+        openobservePass: String? = nil
     ) {
         self.port = port
         self.dbPath = dbPath
@@ -215,5 +235,8 @@ struct Environment {
         self.smtpTlsInsecure = smtpTlsInsecure
         self.smtpTimeoutSeconds = smtpTimeoutSeconds
         self.smtpTLSServerName = smtpTLSServerName
+        self.openobserveURL = openobserveURL
+        self.openobserveUser = openobserveUser
+        self.openobservePass = openobservePass
     }
 }

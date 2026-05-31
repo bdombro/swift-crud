@@ -91,7 +91,7 @@ final class Server: @unchecked Sendable {
         } catch is CancellationError {
         } catch {
             Logger.access(
-                start: Date(), method: "-", path: "-", userId: "ANONYMOUS", statusCode: 500)
+                start: Date(), method: "-", path: "-", userId: "ANONYMOUS", statusCode: 500, clientIP: "unknown")
         }
     }
 
@@ -221,7 +221,7 @@ final class Server: @unchecked Sendable {
         if let preflight = CORS.preflightResponse(for: request) {
             Logger.access(
                 start: start, method: head.method.rawValue, path: path, userId: "ANONYMOUS",
-                statusCode: Int(preflight.statusCode.code), requestId: request.requestId)
+                statusCode: Int(preflight.statusCode.code), clientIP: remoteAddress ?? "unknown", requestId: request.requestId)
             await writeResponse(preflight, head: head, outbound: outbound)
             return
         }
@@ -229,7 +229,7 @@ final class Server: @unchecked Sendable {
         guard let (handler, params) = routes.route(for: head.method, path: path) else {
             Logger.access(
                 start: start, method: head.method.rawValue, path: path, userId: "ANONYMOUS",
-                statusCode: 404, requestId: request.requestId)
+                statusCode: 404, clientIP: remoteAddress ?? "unknown", requestId: request.requestId)
             var notFound = HTTPResponse.apiError(.notFound, .routeNotFound)
             CORS.apply(to: &notFound, request: request)
             await writeResponse(notFound, head: head, outbound: outbound)
@@ -252,7 +252,7 @@ final class Server: @unchecked Sendable {
             : "ANONYMOUS"
         Logger.access(
             start: start, method: head.method.rawValue, path: path, userId: userIdStr,
-            statusCode: Int(response.statusCode.code), requestId: request.requestId)
+            statusCode: Int(response.statusCode.code), clientIP: remoteAddress ?? "unknown", requestId: request.requestId)
 
         await writeResponse(response, head: head, outbound: outbound)
     }

@@ -67,7 +67,7 @@ func main() async throws {
     emailSender = sender
     db = database
 
-    Logger.setup()
+    Logger.setup(env: env)
 
     registerRoutes()
 
