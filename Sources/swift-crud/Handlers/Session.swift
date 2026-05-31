@@ -20,7 +20,7 @@ struct LoginRequest: Codable {
 
 /// Response body for a successful login containing the authenticated user's database ID.
 struct LoginResponse: Codable {
-    var userId: Int
+    var userId: String
 }
 
 // MARK: - Rate limiter for send-code
@@ -205,8 +205,8 @@ func sendCodeHandler(req: HTTPRequest) async throws -> HTTPResponse {
         try await u.write(to: db)
     } else {
         _ = try await db.query(
-            "INSERT INTO users (codeAttempts, codeCreatedAt, codeHash, createdAt, email) VALUES (0, ?, ?, ?, ?)",
-            Date(), hash, Date(), email)
+            "INSERT INTO users (id, codeAttempts, codeCreatedAt, codeHash, createdAt, email) VALUES (?, 0, ?, ?, ?, ?)",
+            UUID().uuidString, Date(), hash, Date(), email)
     }
 
     return HTTPResponse.json(.ok, ["message": "success"])

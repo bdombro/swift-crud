@@ -21,8 +21,8 @@ enum AuthCookie {
     ///   - userId: Authenticated user primary key.
     ///   - secret: `AUTH_SECRET` used as the HMAC key.
     /// - Returns: Value to store in the `user_id` cookie (before `SessionCookie` attributes).
-    static func sign(userId: Int, with secret: String) -> String {
-        let data = Data("\(userId)".utf8)
+    static func sign(userId: String, with secret: String) -> String {
+        let data = Data(userId.utf8)
         let key = SymmetricKey(data: Data(secret.utf8))
         let hmac = HMAC<SHA256>.authenticationCode(for: data, using: key)
         let sig = Data(hmac).base64EncodedString()
@@ -31,13 +31,12 @@ enum AuthCookie {
 
     /// Verify and extract the user ID from a signed cookie value.
     /// Returns `nil` if the signature is missing, malformed, or invalid.
-    static func verify(_ cookieValue: String, secret: String) -> Int? {
+    static func verify(_ cookieValue: String, secret: String) -> String? {
         let parts = cookieValue.split(separator: ".", maxSplits: 1)
-        guard parts.count == 2,
-            let userId = Int(parts[0])
-        else { return nil }
-
-        let data = Data("\(parts[0])".utf8)
+        guard parts.count == 2 else { return nil }
+        
+        let userId = String(parts[0])
+        let data = Data(userId.utf8)
         let key = SymmetricKey(data: Data(secret.utf8))
         let expected = HMAC<SHA256>.authenticationCode(for: data, using: key)
 
@@ -50,7 +49,7 @@ enum AuthCookie {
     }
 
     /// Returns the signed cookie value for `user_id` (alias for `sign(userId:with:)`).
-    static func setCookie(userId: Int, secret: String) -> String {
+    static func setCookie(userId: String, secret: String) -> String {
         sign(userId: userId, with: secret)
     }
 }

@@ -133,7 +133,7 @@ Exchange a code for a session cookie.
 **Response `200`:**
 ```json
 {
-  "userId": 1
+  "userId": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d"
 }
 ```
 
@@ -172,14 +172,14 @@ Validate the session cookie and return the authenticated user's id.
 **Response `200`:**
 
 ```json
-1
+"a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d"
 ```
 
-The body is a JSON number (the user's primary key), not a user object. Clients such as `@slimr/dbsync`'s `RestAdapter` only need the status code (`200` = logged in).
+The body is a JSON string (the user's primary key UUID), not a user object. Clients such as `@slimr/dbsync`'s `RestAdapter` only need the status code (`200` = logged in).
 
 | Status | Meaning |
 |--------|---------|
-| `200` | Authenticated — body is the numeric `userId` |
+| `200` | Authenticated — body is the string `userId` |
 | `401` | Missing or invalid session cookie |
 
 ---
@@ -210,7 +210,7 @@ List the authenticated user's posts, newest first.
       "content": "Hello world",
       "createdAt": 1747008000000,
       "updatedAt": 1747008000000,
-      "userId": 1,
+      "userId": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
       "variant": "note",
       "isDeleted": false
     }
@@ -271,7 +271,7 @@ Fetch a single post by ID. Scoped to the authenticated user.
   "content": "Hello world",
   "createdAt": 1747008000000,
   "updatedAt": 1747008000000,
-  "userId": 1,
+  "userId": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
   "variant": "note"
 }
 ```

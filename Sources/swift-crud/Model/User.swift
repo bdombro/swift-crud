@@ -7,7 +7,7 @@ struct User: BlackbirdModel, Codable {
     nonisolated(unsafe) static var tableName: String = "users"
     nonisolated(unsafe) static var primaryKey: [BlackbirdColumnKeyPath] = [\.$id]
 
-    @BlackbirdColumn var id: Int
+    @BlackbirdColumn var id: String
     @BlackbirdColumn var createdAt: Date
     @BlackbirdColumn var codeAttempts: Int?
     @BlackbirdColumn var codeCreatedAt: Date?

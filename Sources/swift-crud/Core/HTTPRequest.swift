@@ -28,7 +28,7 @@ struct HTTPRequest: Sendable {
     /// Shared reference type so all struct copies see the same cached auth state.
     private final class AuthCache: @unchecked Sendable {
         /// nil = not yet computed, .none = computed-no-auth, .some(id) = authenticated
-        var result: Int?? = nil
+        var result: String?? = nil
     }
     private let _authCache = AuthCache()
 
@@ -60,7 +60,7 @@ struct HTTPRequest: Sendable {
 
     /// The authenticated user ID, extracted from the HMAC-signed `user_id` cookie.
     /// Lazily computed and cached — only runs HMAC on first access.
-    var authUserId: Int? {
+    var authUserId: String? {
         if let cached = _authCache.result { return cached }
         guard let val = cookie("user_id") else {
             _authCache.result = .some(nil)

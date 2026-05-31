@@ -9,7 +9,7 @@ struct Post: BlackbirdModel, Codable {
     @BlackbirdColumn var content: String
     @BlackbirdColumn var createdAt: Date
     @BlackbirdColumn var updatedAt: Date
-    @BlackbirdColumn var userId: Int
+    @BlackbirdColumn var userId: String
     @BlackbirdColumn var variant: String
     @BlackbirdColumn var isDeleted: Bool = false
 

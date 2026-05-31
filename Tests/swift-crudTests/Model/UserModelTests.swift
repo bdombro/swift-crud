@@ -26,13 +26,15 @@ struct UserModelTests {
         try await User.resolveSchema(in: db)
 
         let now = Date()
+        let uuid = UUID().uuidString
         try await db.query(
-            "INSERT INTO users (codeAttempts, codeCreatedAt, codeHash, createdAt, email) VALUES (0, ?, NULL, ?, ?)",
-            now, now, "test@example.com"
+            "INSERT INTO users (id, codeAttempts, codeCreatedAt, codeHash, createdAt, email) VALUES (?, 0, ?, NULL, ?, ?)",
+            uuid, now, now, "test@example.com"
         )
 
         let users = try await User.read(from: db, sqlWhere: "email = ?", "test@example.com")
         #expect(users.count == 1)
+        #expect(users[0].id == uuid)
         #expect(users[0].email == "test@example.com")
         #expect(users[0].codeAttempts == 0)
         #expect(users[0].codeHash == nil)
@@ -45,8 +47,8 @@ struct UserModelTests {
 
         let now = Date()
         try await db.query(
-            "INSERT INTO users (codeAttempts, codeCreatedAt, codeHash, createdAt, email) VALUES (0, ?, 'hash', ?, ?)",
-            now, now, "update@example.com"
+            "INSERT INTO users (id, codeAttempts, codeCreatedAt, codeHash, createdAt, email) VALUES (?, 0, ?, 'hash', ?, ?)",
+            UUID().uuidString, now, now, "update@example.com"
         )
 
         var user = try #require(try await User.read(from: db, sqlWhere: "email = ?", "update@example.com").first)
@@ -68,8 +70,8 @@ struct UserModelTests {
 
         let now = Date()
         try await db.query(
-            "INSERT INTO users (codeAttempts, codeCreatedAt, codeHash, createdAt, email) VALUES (1, ?, 'h', ?, ?)",
-            now, now, "attempts@example.com"
+            "INSERT INTO users (id, codeAttempts, codeCreatedAt, codeHash, createdAt, email) VALUES (?, 1, ?, 'h', ?, ?)",
+            UUID().uuidString, now, now, "attempts@example.com"
         )
 
         var user = try #require(try await User.read(from: db, sqlWhere: "email = ?", "attempts@example.com").first)

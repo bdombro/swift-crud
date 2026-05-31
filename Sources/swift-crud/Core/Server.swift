@@ -248,7 +248,7 @@ final class Server: @unchecked Sendable {
         CORS.apply(to: &response, request: request)
 
         let userIdStr = request.wasAuthChecked
-            ? request.authUserId.map(String.init) ?? "ANONYMOUS"
+            ? request.authUserId ?? "ANONYMOUS"
             : "ANONYMOUS"
         Logger.access(
             start: start, method: head.method.rawValue, path: path, userId: userIdStr,

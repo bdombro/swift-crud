@@ -89,14 +89,14 @@ final class APIIntegrationTests {
 
     /// Inserts a user directly into the DB with a known code so tests bypass SMTP.
     @discardableResult
-    private func seedUser(email: String, code: String = "12345678") async throws -> Int {
+    private func seedUser(email: String, code: String = "12345678") async throws -> String {
         let now = Date()
+        let id = UUID().uuidString
         try await testDb.query(
-            "INSERT INTO users (codeAttempts, codeCreatedAt, codeHash, createdAt, email) VALUES (0, ?, ?, ?, ?)",
-            now, sha256(code), now, email
+            "INSERT INTO users (id, codeAttempts, codeCreatedAt, codeHash, createdAt, email) VALUES (?, 0, ?, ?, ?, ?)",
+            id, now, sha256(code), now, email
         )
-        let rows = try await testDb.query("SELECT id FROM users WHERE email = ?", email)
-        return rows[0]["id"]?.intValue ?? 0
+        return id
     }
 
     private func login(email: String, code: String = "12345678") async throws -> String {
@@ -245,7 +245,7 @@ final class APIIntegrationTests {
         let cookie = try #require(http.extractCookie(from: headers, name: "user_id"))
         let parts = cookie.split(separator: ".")
         #expect(parts.count == 2)
-        #expect(Int(parts[0]) == userId)
+        #expect(String(parts[0]) == userId)
         #expect(AuthCookie.verify(cookie, secret: "test-secret") == userId)
     }
 
@@ -272,14 +272,14 @@ final class APIIntegrationTests {
         let (status, data, _) = try await http.request("GET", "/api/session/", cookie: cookie)
         #expect(status == 200)
 
-        let decoded = try http.decode(data, as: Int.self)
+        let decoded = try http.decode(data, as: String.self)
         #expect(decoded == userId)
     }
 
     @Test("GET /api/session/ with tampered cookie returns 401")
     func getSessionTamperedCookie() async throws {
         let badSig = Data(repeating: 0xAB, count: 32).base64EncodedString()
-        let (status, _, _) = try await http.request("GET", "/api/session/", cookie: "1.\(badSig)")
+        let (status, _, _) = try await http.request("GET", "/api/session/", cookie: "some-user-id.\(badSig)")
         #expect(status == 401)
     }
 

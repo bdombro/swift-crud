@@ -37,7 +37,7 @@ struct PostModelTests {
         try await Post.resolveSchema(in: db)
 
         let now = Date()
-        try await db.query(upsertSQL, now, "post-1", "hello", now, 1, "note", false)
+        try await db.query(upsertSQL, now, "post-1", "hello", now, "user-1", "note", false)
 
         let posts = try await Post.read(from: db, sqlWhere: "id = ?", "post-1")
         #expect(posts.count == 1)
@@ -53,8 +53,8 @@ struct PostModelTests {
         let t1 = Date()
         let t2 = t1.addingTimeInterval(60)
 
-        try await db.query(upsertSQL, t1, "post-1", "original", t1, 1, "note", false)
-        try await db.query(upsertSQL, t1, "post-1", "updated", t2, 1, "note", true)
+        try await db.query(upsertSQL, t1, "post-1", "original", t1, "user-1", "note", false)
+        try await db.query(upsertSQL, t1, "post-1", "updated", t2, "user-1", "note", true)
 
         let post = try #require(try await Post.read(from: db, sqlWhere: "id = ?", "post-1").first)
         #expect(post.content == "updated")
@@ -69,8 +69,8 @@ struct PostModelTests {
         let t1 = Date()
         let t0 = t1.addingTimeInterval(-60)
 
-        try await db.query(upsertSQL, t1, "post-1", "original", t1, 1, "note", false)
-        try await db.query(upsertSQL, t0, "post-1", "stale", t0, 1, "note", true)
+        try await db.query(upsertSQL, t1, "post-1", "original", t1, "user-1", "note", false)
+        try await db.query(upsertSQL, t0, "post-1", "stale", t0, "user-1", "note", true)
 
         let post = try #require(try await Post.read(from: db, sqlWhere: "id = ?", "post-1").first)
         #expect(post.content == "stale")
@@ -85,14 +85,14 @@ struct PostModelTests {
         let t1 = Date()
         let t2 = t1.addingTimeInterval(60)
 
-        try await db.query(upsertSQL, t1, "post-1", "user1-content", t1, 1, "note", false)
-        // userId 2 tries to overwrite post belonging to userId 1
-        try await db.query(upsertSQL, t1, "post-1", "user2-content", t2, 2, "note", true)
+        try await db.query(upsertSQL, t1, "post-1", "user1-content", t1, "user-1", "note", false)
+        // userId user-2 tries to overwrite post belonging to userId user-1
+        try await db.query(upsertSQL, t1, "post-1", "user2-content", t2, "user-2", "note", true)
 
         let post = try #require(try await Post.read(from: db, sqlWhere: "id = ?", "post-1").first)
         #expect(post.content == "user1-content")
         #expect(post.isDeleted == false)
-        #expect(post.userId == 1)
+        #expect(post.userId == "user-1")
     }
 
     // MARK: Pagination ordering
@@ -105,12 +105,12 @@ struct PostModelTests {
         let base = Date()
         for i in 0..<5 {
             let t = base.addingTimeInterval(Double(i) * 60)
-            try await db.query(upsertSQL, t, "post-\(i)", "content \(i)", t, 1, "note", false)
+            try await db.query(upsertSQL, t, "post-\(i)", "content \(i)", t, "user-1", "note", false)
         }
 
         let posts = try await Post.read(
             from: db,
-            sqlWhere: "userId = ? ORDER BY updatedAt DESC LIMIT ?", 1, 3
+            sqlWhere: "userId = ? ORDER BY updatedAt DESC LIMIT ?", "user-1", 3
         )
         #expect(posts.count == 3)
         #expect(posts[0].id == "post-4")
@@ -126,13 +126,13 @@ struct PostModelTests {
         let base = Date()
         for i in 0..<5 {
             let t = base.addingTimeInterval(Double(i) * 60)
-            try await db.query(upsertSQL, t, "post-\(i)", "c", t, 1, "note", false)
+            try await db.query(upsertSQL, t, "post-\(i)", "c", t, "user-1", "note", false)
         }
 
         let limit = 3
         var posts = try await Post.read(
             from: db,
-            sqlWhere: "userId = ? ORDER BY updatedAt DESC LIMIT ?", 1, limit + 1
+            sqlWhere: "userId = ? ORDER BY updatedAt DESC LIMIT ?", "user-1", limit + 1
         )
         let hasMore = posts.count > limit
         if hasMore { posts.removeLast() }
