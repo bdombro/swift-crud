@@ -24,7 +24,8 @@ init:
 keygen-cookie-secret:
     #!/bin/bash
     KEY="$(openssl rand -base64 32)"
-    sed -i '' "s|^AUTH_SECRET=.*|AUTH_SECRET=$KEY|" .env || echo "AUTH_SECRET=$KEY" >> .env
+    perl -i -pe "s|^AUTH_SECRET=.*|AUTH_SECRET=$KEY|" .env || echo "AUTH_SECRET=$KEY" >> .env
+
 
 # Kill any existing server running on port 8222
 kill:
