@@ -42,33 +42,21 @@ enum OpenObserve {
             return
         }
 
-        // Convert NDJSON lines into a valid JSON array
-        guard let rawStr = String(data: data, encoding: .utf8) else { return }
-        let trimmed = rawStr.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        let arrayString = "[" + trimmed.replacingOccurrences(of: "\n", with: ",") + "]"
-        guard let arrayData = arrayString.data(using: .utf8) else { return }
-
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(auth, forHTTPHeaderField: "Authorization")
-        request.httpBody = arrayData
+        request.httpBody = data
         request.timeoutInterval = 10
 
-        let task = URLSession.shared.dataTask(with: request) { responseData, response, error in
+        let task = URLSession.shared.dataTask(with: request) { _, response, error in
             if let error = error {
                 let errMsg = "swift-crud: OpenObserve transmission failed: \(error.localizedDescription)\n"
                 _ = platformWrite(platformStderr, errMsg, errMsg.utf8.count)
                 return
             }
             if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
-                var responseBody = ""
-                if let responseData = responseData, let str = String(data: responseData, encoding: .utf8) {
-                    responseBody = " — " + str.trimmingCharacters(in: .whitespacesAndNewlines)
-                }
-                let errMsg = "swift-crud: OpenObserve ingestion failed: HTTP \(httpResponse.statusCode)\(responseBody)\n"
+                let errMsg = "swift-crud: OpenObserve ingestion failed: HTTP \(httpResponse.statusCode)\n"
                 _ = platformWrite(platformStderr, errMsg, errMsg.utf8.count)
             }
         }

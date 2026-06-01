@@ -123,6 +123,9 @@ struct Environment {
     /// OpenObserve ingestion password.
     let openobservePass: String?
 
+    /// When true, access and info logs are written to standard output and error (default: true).
+    let consoleLogsEnabled: Bool
+
     // MARK: Init from real environment
 
     /// Loads configuration from process environment, then `.env` (process vars win on conflict).
@@ -165,6 +168,8 @@ struct Environment {
         openobserveURL = mergedEnv["OPENOBSERVE_URL"].flatMap { $0.isEmpty ? nil : $0 }
         openobserveUser = mergedEnv["OPENOBSERVE_USER"].flatMap { $0.isEmpty ? nil : $0 }
         openobservePass = mergedEnv["OPENOBSERVE_PASS"].flatMap { $0.isEmpty ? nil : $0 }
+
+        consoleLogsEnabled = mergedEnv["CONSOLE_LOGS_ENABLED"].map { $0 != "false" && $0 != "0" } ?? true
     }
 
     // MARK: Init for testing (allows overriding specific values)
@@ -191,7 +196,8 @@ struct Environment {
             smtpTLSServerName: nil,
             openobserveURL: nil,
             openobserveUser: nil,
-            openobservePass: nil
+            openobservePass: nil,
+            consoleLogsEnabled: true
         )
     }
 
@@ -216,7 +222,8 @@ struct Environment {
         smtpTLSServerName: String? = nil,
         openobserveURL: String? = nil,
         openobserveUser: String? = nil,
-        openobservePass: String? = nil
+        openobservePass: String? = nil,
+        consoleLogsEnabled: Bool = true
     ) {
         self.port = port
         self.dbPath = dbPath
@@ -238,5 +245,6 @@ struct Environment {
         self.openobserveURL = openobserveURL
         self.openobserveUser = openobserveUser
         self.openobservePass = openobservePass
+        self.consoleLogsEnabled = consoleLogsEnabled
     }
 }

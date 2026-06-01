@@ -13,6 +13,7 @@ enum Logger {
     // MARK: Serial queue for buffer synchronization
     private nonisolated(unsafe) static var logQueue: DispatchQueue? = nil
     private nonisolated(unsafe) static var flushTimer: DispatchSourceTimer? = nil
+    private nonisolated(unsafe) static var consoleLogsEnabled = true
 
     // MARK: Buffers (accumulate lines, flush in batch)
     private nonisolated(unsafe) static var infoBuffer = Data()
@@ -20,6 +21,10 @@ enum Logger {
     private nonisolated(unsafe) static var accessBuffer = Data()
     private static let maxBufferSize = 32768
     private static let flushIntervalMs: Int = 100
+
+    // MARK: Timestamp cache (second-level prefix, ms appended per line)
+    private nonisolated(unsafe) static var cachedTimestampPrefix: [UInt8] = []
+    private nonisolated(unsafe) static var cachedTimestampSecond: Int64 = 0
 
     // MARK: Setup / shutdown
 
@@ -29,6 +34,7 @@ enum Logger {
         Self.errorBuffer.reserveCapacity(Self.maxBufferSize)
         Self.accessBuffer.reserveCapacity(Self.maxBufferSize)
 
+        Self.consoleLogsEnabled = env.consoleLogsEnabled
         OpenObserve.setup(env: env)
 
         let timer = DispatchSource.makeTimerSource(queue: Self.logQueue)
@@ -45,6 +51,21 @@ enum Logger {
         Self.flushTimer = nil
         Self.flushAll()
         Self.logQueue = nil
+    }
+
+    // MARK: Timestamp formatting (ISO 8601 with ms, cheap prefix cache)
+
+    private static func cachedTimestampBytes() -> [UInt8] {
+        let now = Date().timeIntervalSince1970
+        let second = Int64(now)
+        if second != Self.cachedTimestampSecond {
+            Self.cachedTimestampPrefix = platformTimestampPrefix(unixSecond: second)
+            Self.cachedTimestampSecond = second
+        }
+        let ms = Int((now - Double(second)) * 1000)
+        var result = Self.cachedTimestampPrefix
+        result.append(contentsOf: String(format: "%03dZ", ms).utf8)
+        return result
     }
 
     // MARK: JSON escaping (O(n), reserveCapacity to avoid reallocation)
@@ -70,10 +91,10 @@ enum Logger {
     // MARK: JSON building (no String allocation)
 
     private static func appendJSONLog(_ data: inout Data, message: String, level: Level, requestId: String? = nil) {
-        let ts = Int64(Date().timeIntervalSince1970 * 1_000_000)
-        data.append(contentsOf: [0x7B, 0x22, 0x5F, 0x74, 0x69, 0x6D, 0x65, 0x73, 0x74, 0x61, 0x6D, 0x70, 0x22, 0x3A])
-        data.append(contentsOf: String(ts).utf8)
-        data.append(contentsOf: [0x2C, 0x22, 0x6C, 0x76, 0x6C, 0x22, 0x3A, 0x22])
+        let ts = Self.cachedTimestampBytes()
+        data.append(contentsOf: [0x7B, 0x22, 0x74, 0x73, 0x22, 0x3A, 0x22])
+        data.append(contentsOf: ts)
+        data.append(contentsOf: [0x22, 0x2C, 0x22, 0x6C, 0x76, 0x6C, 0x22, 0x3A, 0x22])
         data.append(contentsOf: level.rawValue.utf8)
         data.append(contentsOf: [0x22, 0x2C, 0x22, 0x6D, 0x73, 0x67, 0x22, 0x3A, 0x22])
         data.append(contentsOf: Self.jsonEscaped(message))
@@ -85,10 +106,10 @@ enum Logger {
     }
 
     private static func appendJSONAccess(_ data: inout Data, method: String, path: String, userId: String, statusCode: Int, clientIP: String, durationMs: Int, requestId: String? = nil) {
-        let ts = Int64(Date().timeIntervalSince1970 * 1_000_000)
-        data.append(contentsOf: [0x7B, 0x22, 0x5F, 0x74, 0x69, 0x6D, 0x65, 0x73, 0x74, 0x61, 0x6D, 0x70, 0x22, 0x3A])
-        data.append(contentsOf: String(ts).utf8)
-        data.append(contentsOf: [0x2C, 0x22, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73, 0x22, 0x3A])
+        let ts = Self.cachedTimestampBytes()
+        data.append(contentsOf: [0x7B, 0x22, 0x74, 0x73, 0x22, 0x3A, 0x22])
+        data.append(contentsOf: ts)
+        data.append(contentsOf: [0x22, 0x2C, 0x22, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73, 0x22, 0x3A])
         data.append(contentsOf: String(statusCode).utf8)
         data.append(contentsOf: [0x2C, 0x22, 0x6D, 0x65, 0x74, 0x68, 0x6F, 0x64, 0x22, 0x3A, 0x22])
         data.append(contentsOf: method.utf8)
@@ -169,8 +190,10 @@ enum Logger {
 
     private static func flushBuffer(_ buffer: inout Data, to fd: Int32) {
         guard !buffer.isEmpty else { return }
-        buffer.withUnsafeBytes { ptr in
-            _ = platformWrite(fd, ptr.baseAddress!, ptr.count)
+        if Self.consoleLogsEnabled {
+            buffer.withUnsafeBytes { ptr in
+                _ = platformWrite(fd, ptr.baseAddress!, ptr.count)
+            }
         }
         OpenObserve.ship(buffer)
         buffer.removeAll(keepingCapacity: true)
